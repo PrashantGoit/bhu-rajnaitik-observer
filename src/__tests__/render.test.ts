@@ -132,3 +132,69 @@ describe("/api/render", () => {
     expect(res.status).toBe(200);
   });
 });
+
+describe("highlight word matching (computeLayout)", () => {
+  // Pull computeLayout dynamically so we can introspect text segments.
+  async function layoutFor(post: Post) {
+    const { computeLayout, TOKENS } = await import("@/lib/render");
+    return { layout: computeLayout(post, false), accent: TOKENS.accent };
+  }
+
+  function headlineSegments(layout: { commands: Array<{ kind: string }> }) {
+    type Cmd = {
+      kind: string;
+      lines?: Array<{ segments?: Array<{ text: string; fill: string }> }>;
+    };
+    // Flatten segments across every text-block. Tests assert on red-vs-base
+    // counts, which is independent of which block contains them.
+    const blocks = (layout.commands as Cmd[]).filter((c) => c.kind === "text-block");
+    return blocks.flatMap((b) => b.lines?.flatMap((l) => l.segments ?? []) ?? []);
+  }
+
+  it("prefix-matches: 'strike' highlights 'strikes'", async () => {
+    const { layout, accent } = await layoutFor({
+      ...basePost,
+      headline: "Iran strikes Tehran",
+      highlightWords: ["strike"],
+    });
+    const segs = headlineSegments(layout);
+    const red = segs.filter((s) => s.fill === accent).map((s) => s.text);
+    expect(red.join(" ").toLowerCase()).toContain("strikes");
+  });
+
+  it("phrase match: 'white house' highlights two consecutive words", async () => {
+    const { layout, accent } = await layoutFor({
+      ...basePost,
+      headline: "White House",
+      highlightWords: ["white house"],
+    });
+    const segs = headlineSegments(layout);
+    const red = segs.filter((s) => s.fill === accent).map((s) => s.text).join("");
+    expect(red.toLowerCase()).toContain("white");
+    expect(red.toLowerCase()).toContain("house");
+  });
+
+  it("short entries (<=3 chars) require exact match, not prefix", async () => {
+    const { layout, accent } = await layoutFor({
+      ...basePost,
+      headline: "Trust the bus driver",
+      highlightWords: ["us"],
+    });
+    const segs = headlineSegments(layout);
+    const red = segs.filter((s) => s.fill === accent).map((s) => s.text).join("");
+    // 'us' should NOT match within 'Trust' or 'bus'
+    expect(red.toLowerCase()).not.toContain("trust");
+    expect(red.toLowerCase()).not.toContain("bus");
+  });
+
+  it("case-insensitive: lowercase entry matches uppercase headline render", async () => {
+    const { layout, accent } = await layoutFor({
+      ...basePost,
+      headline: "Iran strikes Tehran",
+      highlightWords: ["iran"],
+    });
+    const segs = headlineSegments(layout);
+    const red = segs.filter((s) => s.fill === accent).map((s) => s.text).join("");
+    expect(red.toUpperCase()).toContain("IRAN");
+  });
+});

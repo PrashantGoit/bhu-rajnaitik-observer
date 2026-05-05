@@ -170,24 +170,12 @@ export function Controls({ post, onChange, onExport, exporting }: Props) {
       </Field>
 
       <Field label="Highlight words (red)">
-        <input
-          type="text"
-          value={post.highlightWords.join(", ")}
-          onChange={(e) =>
-            onChange({
-              ...post,
-              highlightWords: e.target.value
-                .split(",")
-                .map((s) => s.trim())
-                .filter(Boolean)
-                .slice(0, 8),
-            })
-          }
-          placeholder="Iran, strike, sanctions"
-          className={inputCls}
+        <HighlightTagInput
+          value={post.highlightWords}
+          onChange={(words) => onChange({ ...post, highlightWords: words })}
         />
         <span className="mt-1 block font-mono text-[10px] uppercase tracking-wider text-[var(--color-ink-secondary)]">
-          comma-separated · matched as whole words · up to 8
+          Press Enter or comma to add. Backspace to remove. Up to 8.
         </span>
       </Field>
 
@@ -295,6 +283,97 @@ function Field({
         {required ? <span className="ml-1 text-[var(--color-accent)]">*</span> : null}
       </label>
       {children}
+    </div>
+  );
+}
+
+const MAX_HIGHLIGHTS = 8;
+
+function HighlightTagInput({
+  value,
+  onChange,
+}: {
+  value: string[];
+  onChange: (next: string[]) => void;
+}) {
+  const [buffer, setBuffer] = useState("");
+
+  function commit(raw: string) {
+    const next = raw.trim().replace(/\s+/g, " ");
+    if (!next) return;
+    if (value.length >= MAX_HIGHLIGHTS) return;
+    if (value.some((v) => v.toLowerCase() === next.toLowerCase())) return;
+    onChange([...value, next].slice(0, MAX_HIGHLIGHTS));
+  }
+
+  function handleKey(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault();
+      commit(buffer);
+      setBuffer("");
+    } else if (e.key === "Backspace" && buffer === "" && value.length > 0) {
+      e.preventDefault();
+      onChange(value.slice(0, -1));
+    }
+  }
+
+  function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const text = e.target.value;
+    // Auto-commit on comma anywhere in pasted/typed text
+    if (text.includes(",")) {
+      const parts = text.split(",");
+      for (let i = 0; i < parts.length - 1; i++) commit(parts[i]);
+      setBuffer(parts[parts.length - 1].trimStart());
+    } else {
+      setBuffer(text);
+    }
+  }
+
+  function remove(i: number) {
+    onChange(value.filter((_, idx) => idx !== i));
+  }
+
+  const full = value.length >= MAX_HIGHLIGHTS;
+
+  return (
+    <div className="flex flex-wrap gap-1.5 rounded-md border border-[var(--color-map-border)] bg-[var(--color-map-land)]/40 p-1.5 focus-within:border-[var(--color-accent)] focus-within:ring-2 focus-within:ring-[var(--color-accent)]/30">
+      {value.map((word, i) => (
+        <span
+          key={`${word}-${i}`}
+          className="inline-flex items-center gap-1 rounded bg-[var(--color-accent)] px-2 py-0.5 font-mono text-xs font-semibold uppercase tracking-wider text-white"
+        >
+          {word}
+          <button
+            type="button"
+            onClick={() => remove(i)}
+            aria-label={`Remove ${word}`}
+            className="rounded text-white/80 hover:text-white"
+          >
+            ×
+          </button>
+        </span>
+      ))}
+      <input
+        type="text"
+        value={buffer}
+        onChange={handleChange}
+        onKeyDown={handleKey}
+        onBlur={() => {
+          if (buffer.trim()) {
+            commit(buffer);
+            setBuffer("");
+          }
+        }}
+        placeholder={
+          full
+            ? "Max 8 reached"
+            : value.length === 0
+              ? "Iran, strikes, white house…"
+              : "Add another…"
+        }
+        disabled={full}
+        className="flex-1 min-w-[120px] bg-transparent px-1.5 py-1 text-sm text-[var(--color-ink-primary)] placeholder:text-[var(--color-ink-secondary)]/60 focus:outline-none disabled:opacity-60"
+      />
     </div>
   );
 }

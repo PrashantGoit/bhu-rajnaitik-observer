@@ -253,8 +253,16 @@ function fitFontSize(
 }
 
 // ---------------------------------------------------------------------------
-// Highlight word segmentation — splits a line into [{text, fill}] segments
-// where words matching `highlightWords` (case-insensitive) get accent red.
+// Highlight word segmentation — splits a line into [{text, fill}] segments.
+//
+// Each entry in `highlightWords` may be a single word OR a multi-word phrase
+// (e.g. "white house"). Matching rules:
+//   • Case-insensitive.
+//   • Whole-word for short entries (≤ 3 letters) to avoid silly hits like
+//     "in" matching every word containing it.
+//   • Prefix match for longer entries: "strike" highlights "strikes",
+//     "striking". This is what users intuitively want for headlines.
+//   • Phrases match consecutive word tokens, ignoring whitespace between them.
 // ---------------------------------------------------------------------------
 function buildHighlightedSegments(
   line: string,
@@ -265,20 +273,78 @@ function buildHighlightedSegments(
 ): TextSegment[] {
   if (!highlightWords.length) return [{ text: line, fill: baseFill }];
   const display = uppercase ? line.toUpperCase() : line;
-  const norm = highlightWords
-    .map((w) => (uppercase ? w.toUpperCase() : w).trim())
-    .filter(Boolean);
-  if (!norm.length) return [{ text: display, fill: baseFill }];
 
-  // Tokenize on word boundaries while keeping whitespace as its own segment
+  // Normalize each entry into a list of "phrase tokens" (lowercase, stripped
+  // of punctuation). A single-word entry yields a length-1 phrase.
+  const phrases: string[][] = [];
+  for (const raw of highlightWords) {
+    const parts = raw
+      .toLowerCase()
+      .split(/\s+/)
+      .map((p) => p.replace(/[^a-z0-9'’\-]/g, ""))
+      .filter(Boolean);
+    if (parts.length) phrases.push(parts);
+  }
+  if (!phrases.length) return [{ text: display, fill: baseFill }];
+
+  // Tokenize the line, keeping non-word runs (spaces, punctuation) as their
+  // own segments so highlights can flow between words naturally.
   const re = /([A-Za-z0-9'’\-]+|[^A-Za-z0-9'’\-]+)/g;
   const tokens = display.match(re) ?? [display];
-  const out: TextSegment[] = [];
-  for (const tok of tokens) {
-    const cleanTok = tok.replace(/[^A-Za-z0-9'’\-]/g, "");
-    const isHit = !!cleanTok && norm.some((w) => w === cleanTok);
-    out.push({ text: tok, fill: isHit ? highlightFill : baseFill });
+
+  // Pre-compute clean lowercase form for each word token (empty for non-words).
+  const cleanTokens = tokens.map((t) =>
+    /[A-Za-z0-9]/.test(t)
+      ? t.toLowerCase().replace(/[^a-z0-9'’\-]/g, "")
+      : "",
+  );
+
+  // Index map: for each phrase, find every consecutive run of word-tokens
+  // that matches it. We mark token indices [start..end] as highlighted.
+  const hits = new Array<boolean>(tokens.length).fill(false);
+
+  function tokenMatches(tokIdx: number, target: string): boolean {
+    const tok = cleanTokens[tokIdx];
+    if (!tok) return false;
+    if (target.length <= 3) return tok === target;
+    return tok.startsWith(target);
   }
+
+  for (const phrase of phrases) {
+    for (let i = 0; i < tokens.length; i++) {
+      if (!cleanTokens[i]) continue;
+      // Try to match each phrase part against successive word-tokens,
+      // skipping any non-word tokens between them.
+      let cursor = i;
+      let matched = true;
+      for (let p = 0; p < phrase.length; p++) {
+        // Advance past non-word tokens for parts after the first
+        if (p > 0) {
+          while (cursor < tokens.length && !cleanTokens[cursor]) cursor++;
+          if (cursor >= tokens.length) {
+            matched = false;
+            break;
+          }
+        }
+        if (!tokenMatches(cursor, phrase[p])) {
+          matched = false;
+          break;
+        }
+        cursor++;
+      }
+      if (matched) {
+        // Highlight from i through cursor-1, and any non-word tokens between
+        // word-tokens within that span (so spaces inside "WHITE HOUSE" go red).
+        for (let k = i; k < cursor; k++) hits[k] = true;
+      }
+    }
+  }
+
+  const out: TextSegment[] = tokens.map((tok, idx) => ({
+    text: tok,
+    fill: hits[idx] ? highlightFill : baseFill,
+  }));
+
   // Coalesce adjacent same-fill segments
   const coalesced: TextSegment[] = [];
   for (const s of out) {
