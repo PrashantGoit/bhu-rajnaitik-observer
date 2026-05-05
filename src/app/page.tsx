@@ -1,4 +1,5 @@
 import { WaitlistForm } from "@/components/waitlist-form";
+import Link from "next/link";
 
 export default function Home() {
   return (
@@ -25,6 +26,14 @@ export default function Home() {
         </p>
 
         <WaitlistForm />
+
+        <Link
+          href="/editor"
+          className="mt-6 inline-flex items-center gap-2 font-mono text-xs uppercase tracking-[0.3em] text-[var(--color-ink-secondary)] transition hover:text-[var(--color-accent)]"
+        >
+          Or try the editor live
+          <span aria-hidden>→</span>
+        </Link>
 
         <ul className="mt-10 grid w-full max-w-xl grid-cols-1 gap-3 text-left text-sm text-[var(--color-ink-secondary)] sm:grid-cols-3">
           <li className="rounded-lg border border-[var(--color-map-border)] bg-[var(--color-map-land)]/40 px-4 py-3">
