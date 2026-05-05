@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { POST } from "@/app/api/render/route";
-import type { Post } from "@/lib/post-schema";
+import type { Post, LayoutKind, Format, TagKind } from "@/lib/post-schema";
 
 const PNG_MAGIC = [0x89, 0x50, 0x4e, 0x47];
 
@@ -12,26 +12,27 @@ function makeRequest(body: unknown): Request {
   });
 }
 
-const validPost: Post = {
+const basePost: Post = {
   background: { kind: "preset", slug: "world-dark" },
   headline: "Iran strikes Israeli air base",
-  subheadline: "Tehran's deterrence calculus shifts as ballistic missile salvos target Negev base.",
+  subheadline:
+    "Tehran's deterrence calculus shifts as ballistic missile salvos target Negev base.",
   countryName: "Iran",
   highlightWords: [],
   format: "1080x1080",
+  layout: "breaking",
+  tag: { kind: "breaking" },
+  fontStyle: "display",
 };
 
 describe("/api/render", () => {
-  it("returns a valid PNG for a well-formed post", async () => {
-    const res = await POST(makeRequest(validPost));
+  it("returns valid PNG for the breaking layout", async () => {
+    const res = await POST(makeRequest(basePost));
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("image/png");
-
     const buf = Buffer.from(await res.arrayBuffer());
-    expect(buf.byteLength).toBeGreaterThan(1024); // a real PNG of a 1080² canvas is well above 1KB
-    for (let i = 0; i < PNG_MAGIC.length; i++) {
-      expect(buf[i]).toBe(PNG_MAGIC[i]);
-    }
+    expect(buf.byteLength).toBeGreaterThan(1024);
+    for (let i = 0; i < PNG_MAGIC.length; i++) expect(buf[i]).toBe(PNG_MAGIC[i]);
   });
 
   it("rejects invalid JSON", async () => {
@@ -40,21 +41,57 @@ describe("/api/render", () => {
       headers: { "Content-Type": "application/json" },
       body: "not-json",
     });
-    const res = await POST(req);
+    expect((await POST(req)).status).toBe(400);
+  });
+
+  it("rejects empty headline", async () => {
+    const res = await POST(makeRequest({ ...basePost, headline: "" }));
     expect(res.status).toBe(400);
   });
 
-  it("rejects payloads missing the headline", async () => {
-    const bad = { ...validPost, headline: "" };
-    const res = await POST(makeRequest(bad));
-    expect(res.status).toBe(400);
+  it("renders a solid background", async () => {
+    const res = await POST(
+      makeRequest({ ...basePost, background: { kind: "solid", color: "#0B0F14" } }),
+    );
+    expect(res.status).toBe(200);
   });
 
-  it("works with a solid-color background", async () => {
-    const post = { ...validPost, background: { kind: "solid" as const, color: "#0B0F14" } };
+  it.each<LayoutKind>(["breaking", "stat", "quote", "minimal", "centered"])(
+    "renders layout=%s",
+    async (layout) => {
+      const post: Post = {
+        ...basePost,
+        layout,
+        stat: { value: "78%", label: "approval drop" },
+        attribution: "Senior official",
+      };
+      const res = await POST(makeRequest(post));
+      expect(res.status).toBe(200);
+      const buf = Buffer.from(await res.arrayBuffer());
+      expect(buf.byteLength).toBeGreaterThan(1024);
+    },
+  );
+
+  it.each<Format>(["1080x1080", "1080x1920", "1600x900"])("renders format=%s", async (format) => {
+    const res = await POST(makeRequest({ ...basePost, format }));
+    expect(res.status).toBe(200);
+  });
+
+  it.each<TagKind>([
+    "breaking",
+    "analysis",
+    "alert",
+    "intel",
+    "deep-dive",
+    "live",
+    "explainer",
+    "custom",
+  ])("renders tag=%s", async (kind) => {
+    const post: Post = {
+      ...basePost,
+      tag: { kind, customLabel: kind === "custom" ? "EXCLUSIVE" : undefined },
+    };
     const res = await POST(makeRequest(post));
     expect(res.status).toBe(200);
-    const buf = Buffer.from(await res.arrayBuffer());
-    expect(buf.byteLength).toBeGreaterThan(1024);
   });
 });

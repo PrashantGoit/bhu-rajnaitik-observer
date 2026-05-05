@@ -6,7 +6,6 @@ import { useEffect, useState } from "react";
 import type { Post } from "@/lib/post-schema";
 import { Controls } from "@/components/editor/controls";
 
-// Konva touches `window`, so the preview is client-only and dynamically loaded.
 const CanvasPreview = dynamic(
   () => import("@/components/editor/canvas-preview").then((m) => m.CanvasPreview),
   { ssr: false, loading: () => <PreviewSkeleton /> },
@@ -15,10 +14,14 @@ const CanvasPreview = dynamic(
 const INITIAL_POST: Post = {
   background: { kind: "preset", slug: "world-dark" },
   headline: "Iran strikes Israeli air base",
-  subheadline: "Tehran's deterrence calculus shifts as ballistic missile salvos target Negev base.",
+  subheadline:
+    "Tehran's deterrence calculus shifts as ballistic missile salvos target Negev base.",
   countryName: "Iran",
   highlightWords: [],
   format: "1080x1080",
+  layout: "centered",
+  tag: { kind: "breaking" },
+  fontStyle: "display",
 };
 
 export default function EditorPage() {
@@ -71,14 +74,20 @@ export default function EditorPage() {
     <main className="flex flex-1 flex-col px-6 py-8 lg:flex-row lg:gap-10 lg:px-10">
       <header className="mb-6 flex items-center justify-between lg:hidden">
         <h1 className="font-display text-2xl font-extrabold tracking-tight">Editor</h1>
-        <Link href="/" className="font-mono text-xs uppercase tracking-widest text-[var(--color-ink-secondary)]">
+        <Link
+          href="/"
+          className="font-mono text-xs uppercase tracking-widest text-[var(--color-ink-secondary)]"
+        >
           ← Home
         </Link>
       </header>
 
       <section className="flex flex-1 flex-col items-center lg:items-start">
         <div className="mb-4 hidden items-center gap-4 lg:flex">
-          <Link href="/" className="font-mono text-xs uppercase tracking-widest text-[var(--color-ink-secondary)] hover:text-[var(--color-ink-primary)]">
+          <Link
+            href="/"
+            className="font-mono text-xs uppercase tracking-widest text-[var(--color-ink-secondary)] hover:text-[var(--color-ink-primary)]"
+          >
             ← Home
           </Link>
           <span className="text-[var(--color-map-border)]">/</span>
@@ -86,7 +95,7 @@ export default function EditorPage() {
         </div>
         <CanvasPreview post={post} displayWidth={previewWidth} />
         <p className="mt-3 font-mono text-[10px] uppercase tracking-widest text-[var(--color-ink-secondary)]">
-          Live preview · 1080×1080 · watermark added on export
+          Live preview · {post.format} · watermark added on export
         </p>
         {exportError ? (
           <p className="mt-3 text-sm text-[var(--color-highlight)]" role="status">

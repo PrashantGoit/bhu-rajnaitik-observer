@@ -4,11 +4,14 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { PostSchema } from "@/lib/post-schema";
 import { computeLayout, type DrawCmd } from "@/lib/render";
+import { ensureFontsRegistered } from "@/lib/server-fonts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
+  ensureFontsRegistered();
+
   let body: unknown;
   try {
     body = await request.json();
@@ -18,14 +21,14 @@ export async function POST(request: Request) {
 
   const parsed = PostSchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json({ error: "Invalid post payload", issues: parsed.error.format() }, { status: 400 });
+    return NextResponse.json(
+      { error: "Invalid post payload", issues: parsed.error.format() },
+      { status: 400 },
+    );
   }
   const post = parsed.data;
 
-  // Watermark is server-enforced (AGENTS.md non-negotiable #7).
-  // TODO: when auth lands, look up user's plan and pass `withWatermark = plan !== 'premium'`.
   const layout = computeLayout(post, true);
-
   const canvas = createCanvas(layout.width, layout.height);
   const ctx = canvas.getContext("2d");
 
@@ -65,17 +68,14 @@ async function draw(ctx: Ctx, cmd: DrawCmd): Promise<void> {
       ctx.drawImage(img, cmd.x, cmd.y, cmd.w, cmd.h);
       ctx.restore();
     } catch {
-      // Fail silently on image load errors — base rect already drawn underneath.
+      // Fail silently — base rect already drawn underneath.
     }
     return;
   }
 
-  // text
   ctx.save();
   ctx.fillStyle = cmd.fill;
-  const family = mapFontFamily(cmd.fontFamily);
-  // @napi-rs/canvas uses CSS-like font shorthand
-  ctx.font = `${cmd.fontWeight} ${cmd.fontSize}px ${family}`;
+  ctx.font = `${cmd.fontWeight} ${cmd.fontSize}px ${mapFontFamily(cmd.fontFamily)}`;
   ctx.textAlign = cmd.align;
   ctx.textBaseline = "top";
 
@@ -95,7 +95,6 @@ async function draw(ctx: Ctx, cmd: DrawCmd): Promise<void> {
 }
 
 async function loadImageForCmd(src: string): Promise<CanvasImage> {
-  // Local /public assets — read from disk to avoid HTTP round-trip during render
   if (src.startsWith("/")) {
     const filePath = path.join(process.cwd(), "public", src.replace(/^\//, ""));
     const buf = await fs.readFile(filePath);
@@ -105,10 +104,8 @@ async function loadImageForCmd(src: string): Promise<CanvasImage> {
 }
 
 function mapFontFamily(name: string): string {
-  // System fallbacks until we bundle TTFs into public/fonts/ + GlobalFonts.registerFromPath.
-  const lower = name.toLowerCase();
-  if (lower.includes("mono")) return '"Cascadia Mono", "Consolas", monospace';
-  if (lower.includes("tight")) return '"Inter", "Segoe UI", system-ui, sans-serif';
+  if (name === "JetBrains Mono") return '"JetBrains Mono", "Cascadia Mono", "Consolas", monospace';
+  if (name === "Inter Tight") return '"Inter Tight", "Inter", "Segoe UI", system-ui, sans-serif';
   return '"Inter", "Segoe UI", system-ui, sans-serif';
 }
 
@@ -148,13 +145,12 @@ function drawTextWithSpacing(
     ctx.fillText(text, x, y);
     return;
   }
-  // Measure total width with spacing for centering/right alignment
   const widths = Array.from(text).map((ch) => ctx.measureText(ch).width);
   const total = widths.reduce((a, b) => a + b, 0) + letterSpacing * Math.max(0, text.length - 1);
   let cursor = x;
   if (align === "center") cursor = x - total / 2;
   else if (align === "right") cursor = x - total;
-  ctx.textAlign = "left"; // we're placing each glyph manually
+  ctx.textAlign = "left";
   for (let i = 0; i < text.length; i++) {
     ctx.fillText(text[i], cursor, y);
     cursor += widths[i] + letterSpacing;

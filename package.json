@@ -13,6 +13,9 @@
     "e2e:install": "playwright install --with-deps chromium"
   },
   "dependencies": {
+    "@fontsource/inter": "^5.2.8",
+    "@fontsource/inter-tight": "^5.2.7",
+    "@fontsource/jetbrains-mono": "^5.2.8",
     "@napi-rs/canvas": "^1.0.0",
     "konva": "^10.3.0",
     "next": "16.2.4",
