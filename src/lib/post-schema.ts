@@ -44,6 +44,46 @@ export const TagSchema = z.object({
 export const FontStyleSchema = z.enum(["display", "editorial", "techno"]);
 export const FontScaleSchema = z.enum(["sm", "md", "lg", "xl"]);
 
+// Word-style font catalog. Browser-side these load via Google Fonts in
+// src/app/layout.tsx. Server-side @napi-rs/canvas falls back to system
+// fonts of the same generic family — visual diff is acceptable for MVP.
+export type FontCategory = "sans" | "display" | "serif" | "mono";
+
+export const FONT_FAMILY_OPTIONS: Array<{
+  family: string;
+  category: FontCategory;
+  weights: number[];
+  description?: string;
+}> = [
+  { family: "Inter Tight", category: "sans", weights: [700, 800, 900], description: "BRO default" },
+  { family: "Inter", category: "sans", weights: [400, 500, 600, 700] },
+  { family: "Roboto", category: "sans", weights: [400, 500, 700] },
+  { family: "Montserrat", category: "sans", weights: [600, 700, 800] },
+  { family: "Poppins", category: "sans", weights: [500, 600, 700, 800] },
+  { family: "Work Sans", category: "sans", weights: [500, 600, 700] },
+  { family: "Archivo Black", category: "display", weights: [400] },
+  { family: "Bebas Neue", category: "display", weights: [400] },
+  { family: "Oswald", category: "display", weights: [500, 600, 700] },
+  { family: "Anton", category: "display", weights: [400] },
+  { family: "Russo One", category: "display", weights: [400] },
+  { family: "Bangers", category: "display", weights: [400] },
+  { family: "Teko", category: "display", weights: [500, 600, 700] },
+  { family: "Playfair Display", category: "serif", weights: [600, 700, 800] },
+  { family: "Merriweather", category: "serif", weights: [400, 700] },
+  { family: "Lora", category: "serif", weights: [500, 600, 700] },
+  { family: "Roboto Slab", category: "serif", weights: [500, 700] },
+  { family: "EB Garamond", category: "serif", weights: [500, 600, 700] },
+  { family: "JetBrains Mono", category: "mono", weights: [500, 600, 700] },
+  { family: "Roboto Mono", category: "mono", weights: [500, 600, 700] },
+  { family: "IBM Plex Mono", category: "mono", weights: [500, 600, 700] },
+];
+
+export const FONT_FAMILY_NAMES = FONT_FAMILY_OPTIONS.map((f) => f.family);
+
+export const FONT_SIZE_PRESETS = [
+  24, 28, 32, 36, 40, 48, 56, 64, 72, 80, 96, 112, 128, 144, 160, 180, 200, 220, 240,
+];
+
 export const StatSchema = z.object({
   value: z.string().min(1).max(16),
   label: z.string().min(1).max(80),
@@ -61,6 +101,11 @@ export const PostSchema = z.object({
   tag: TagSchema.default({ kind: "breaking" }),
   fontStyle: FontStyleSchema.default("display"),
   fontScale: FontScaleSchema.default("md"),
+  // Word-style overrides. headlineFont overrides the display family from
+  // FONT_PAIRS[fontStyle]. headlineSize=0 means auto-fit; >0 = target size
+  // in pixels (auto-fitter still shrinks to prevent overlap).
+  headlineFont: z.string().min(1).max(64).default("Inter Tight"),
+  headlineSize: z.number().int().min(0).max(280).default(0),
   stat: StatSchema.optional(),
   attribution: z.string().max(80).optional(),
 });

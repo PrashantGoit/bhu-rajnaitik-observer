@@ -24,6 +24,8 @@ const basePost: Post = {
   tag: { kind: "breaking" },
   fontStyle: "display",
   fontScale: "md",
+  headlineFont: "Inter Tight",
+  headlineSize: 0,
 };
 
 describe("/api/render", () => {
@@ -224,6 +226,44 @@ describe("font scale (computeLayout)", () => {
   it("renders successfully across all font scales", async () => {
     for (const scale of ["sm", "md", "lg", "xl"] as const) {
       const res = await POST(makeRequest({ ...basePost, fontScale: scale }));
+      expect(res.status).toBe(200);
+    }
+  });
+});
+
+describe("headline font + numeric size (computeLayout)", () => {
+  async function firstLineFor(post: Post) {
+    const { computeLayout } = await import("@/lib/render");
+    const layout = computeLayout(post, false);
+    type Cmd = {
+      kind: string;
+      lines?: Array<{ size?: number; fontSize?: number; fontFamily?: string }>;
+    };
+    const block = (layout.commands as Cmd[]).find(
+      (c) => c.kind === "text-block" && (c.lines?.length ?? 0) > 0,
+    );
+    return block?.lines?.[0];
+  }
+
+  it("explicit headlineSize overrides the fontScale preset", async () => {
+    const small = await firstLineFor({ ...basePost, fontScale: "xl", headlineSize: 60 });
+    const big = await firstLineFor({ ...basePost, fontScale: "sm", headlineSize: 200 });
+    const smallSize = small?.size ?? small?.fontSize ?? 0;
+    const bigSize = big?.size ?? big?.fontSize ?? 0;
+    expect(bigSize).toBeGreaterThan(smallSize);
+  });
+
+  it("changing headlineFont propagates to the rendered fontFamily", async () => {
+    const inter = await firstLineFor({ ...basePost, headlineFont: "Inter Tight" });
+    const bebas = await firstLineFor({ ...basePost, headlineFont: "Bebas Neue" });
+    expect(inter?.fontFamily ?? "").toContain("Inter Tight");
+    expect(bebas?.fontFamily ?? "").toContain("Bebas Neue");
+  });
+
+  it("renders successfully across a sample of font families", async () => {
+    const sample = ["Bebas Neue", "Playfair Display", "Roboto Slab", "Anton", "JetBrains Mono"];
+    for (const fam of sample) {
+      const res = await POST(makeRequest({ ...basePost, headlineFont: fam }));
       expect(res.status).toBe(200);
     }
   });

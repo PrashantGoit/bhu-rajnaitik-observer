@@ -26,6 +26,8 @@ const INITIAL_POST: Post = {
   tag: { kind: "breaking" },
   fontStyle: "display",
   fontScale: "md",
+  headlineFont: "Inter Tight",
+  headlineSize: 0,
 };
 
 export default function EditorPage() {

@@ -2,18 +2,27 @@ import type { FontStyle, Post, Tag } from "./post-schema";
 import { FORMAT_DIMENSIONS, TAG_OPTIONS } from "./post-schema";
 
 // ---------------------------------------------------------------------------
-// Headline scale — user-facing "size" preset that nudges the auto-fit range
-// up or down. The auto-fitter still enforces maxHeight + maxLines, so picking
-// XL never causes overlap: fitFontSize will step back down if the bigger max
-// can't fit. SM lowers BOTH min and max so genuinely smaller text is allowed.
-// LG/XL only raise max so safe min remains the fallback floor.
+// Headline scale — combines the legacy fontScale preset (sm/md/lg/xl) with
+// the Word-style explicit headlineSize override. The auto-fitter always
+// enforces maxHeight + maxLines, so even a user-picked huge size will step
+// back down if the bigger ceiling can't fit. Overlap is impossible by
+// construction: minSize remains a safe floor.
 // ---------------------------------------------------------------------------
 function scaleHeadlineRange(
-  scale: Post["fontScale"] | undefined,
+  post: Pick<Post, "fontScale" | "headlineSize">,
   minSize: number,
   maxSize: number,
 ): { minSize: number; maxSize: number } {
-  switch (scale) {
+  // Explicit numeric override wins. Use it as the target ceiling but keep
+  // a sane min so fitFontSize can shrink to fit.
+  if (post.headlineSize && post.headlineSize > 0) {
+    const target = Math.max(8, Math.min(280, post.headlineSize));
+    return {
+      minSize: Math.min(minSize, target),
+      maxSize: target,
+    };
+  }
+  switch (post.fontScale) {
     case "sm":
       return { minSize: Math.round(minSize * 0.85), maxSize: Math.round(maxSize * 0.85) };
     case "lg":
@@ -145,14 +154,53 @@ const FONT_PAIRS: Record<FontStyle, FontPair> = {
 // Width estimation — empirical character-width ratios per font family.
 // These are calibrated against rendered Inter / Inter Tight / JetBrains Mono
 // so wrap decisions match what the canvas actually paints within ~3%.
+// For the extended Word-style font catalog we fall back to per-category
+// ratios — close enough for layout decisions; the auto-fitter compensates.
 // ---------------------------------------------------------------------------
+const FAMILY_CATEGORY: Record<string, "sans" | "display" | "serif" | "mono"> = {
+  "Inter Tight": "sans",
+  "Inter": "sans",
+  "Roboto": "sans",
+  "Montserrat": "sans",
+  "Poppins": "sans",
+  "Work Sans": "sans",
+  "Archivo Black": "display",
+  "Bebas Neue": "display",
+  "Oswald": "display",
+  "Anton": "display",
+  "Russo One": "display",
+  "Bangers": "display",
+  "Teko": "display",
+  "Playfair Display": "serif",
+  "Merriweather": "serif",
+  "Lora": "serif",
+  "Roboto Slab": "serif",
+  "EB Garamond": "serif",
+  "JetBrains Mono": "mono",
+  "Roboto Mono": "mono",
+  "IBM Plex Mono": "mono",
+};
+
 function avgCharRatio(family: string, weight: number, uppercase: boolean): number {
-  if (family === "JetBrains Mono") return uppercase ? 0.62 : 0.60;
+  const cat = FAMILY_CATEGORY[family] ?? "sans";
+  if (cat === "mono") return uppercase ? 0.62 : 0.60;
   if (family === "Inter Tight") {
     const base = weight >= 700 ? 0.54 : 0.50;
     return uppercase ? base + 0.07 : base;
   }
-  // Inter
+  if (cat === "display") {
+    // Condensed/heavy display faces (Bebas, Oswald, Anton, Teko) are narrow.
+    if (family === "Bebas Neue" || family === "Anton" || family === "Oswald" || family === "Teko") {
+      return uppercase ? 0.46 : 0.44;
+    }
+    // Bangers / Russo / Archivo Black are wider and chunkier.
+    return uppercase ? 0.60 : 0.56;
+  }
+  if (cat === "serif") {
+    const base = weight >= 700 ? 0.53 : 0.50;
+    return uppercase ? base + 0.07 : base;
+  }
+  // Generic sans-serif (Inter, Roboto, Montserrat, etc.)
   const base = weight >= 700 ? 0.52 : 0.48;
   return uppercase ? base + 0.08 : base;
 }
@@ -387,7 +435,13 @@ export function computeLayout(post: Post, withWatermark: boolean): Layout {
   const dims = FORMAT_DIMENSIONS[post.format];
   const width = dims.width;
   const height = dims.height;
-  const fonts = FONT_PAIRS[post.fontStyle];
+  const basePair = FONT_PAIRS[post.fontStyle];
+  // headlineFont (Word-style picker) overrides the display family. Body and
+  // mono stay paired with the chosen fontStyle for visual coherence.
+  const fonts: FontPair = {
+    ...basePair,
+    display: (post.headlineFont && post.headlineFont.trim()) || basePair.display,
+  };
   const cmds: DrawCmd[] = [];
 
   drawBackdrop(cmds, post, width, height);
@@ -733,7 +787,7 @@ function drawBreaking(
   const subGap = post.subheadline ? 28 : 0;
   const headlineMaxH = usableH - subBlockH - subGap - underlineH - underlineGap;
 
-  const hRange = scaleHeadlineRange(post.fontScale, 56, 144);
+  const hRange = scaleHeadlineRange(post, 56, 144);
   const headlineFit = fitFontSize(post.headline, {
     maxWidth: contentW,
     maxHeight: headlineMaxH,
@@ -868,7 +922,7 @@ function drawStat(
   const valueMaxH = usableH - stack;
   const valueMaxSize = Math.min(Math.floor(w * 0.34), Math.max(180, Math.floor(valueMaxH * 0.95)));
 
-  const vRange = scaleHeadlineRange(post.fontScale, 120, valueMaxSize);
+  const vRange = scaleHeadlineRange(post, 120, valueMaxSize);
   const valueFit = fitFontSize(stat.value, {
     maxWidth: contentW,
     maxHeight: Math.max(160, valueMaxH),
@@ -987,7 +1041,7 @@ function drawQuote(
     align: "left",
   });
 
-  const quoteRange = scaleHeadlineRange(post.fontScale, 36, 88);
+  const quoteRange = scaleHeadlineRange(post, 36, 88);
   const quoteFit = fitFontSize(post.headline, {
     maxWidth: contentW,
     maxHeight: usableH - 200,
@@ -1081,7 +1135,7 @@ function drawMinimal(
     subBlockH = subLines.length * subSize * 1.4;
   }
 
-  const mRange = scaleHeadlineRange(post.fontScale, 48, 120);
+  const mRange = scaleHeadlineRange(post, 48, 120);
   const headlineFit = fitFontSize(post.headline, {
     maxWidth: contentW,
     maxHeight: usableH - subBlockH - 32,
@@ -1169,7 +1223,7 @@ function drawCentered(
   const sepH = 2;
   const headlineMaxH = usableH - subBlockH - (post.subheadline ? sepGap * 2 + sepH : 0);
 
-  const cRange = scaleHeadlineRange(post.fontScale, 56, 132);
+  const cRange = scaleHeadlineRange(post, 56, 132);
   const headlineFit = fitFontSize(post.headline, {
     maxWidth: contentW,
     maxHeight: headlineMaxH,

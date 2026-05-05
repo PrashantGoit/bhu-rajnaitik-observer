@@ -8,6 +8,8 @@ import {
   TAG_OPTIONS,
   FONT_STYLE_OPTIONS,
   FONT_SCALE_OPTIONS,
+  FONT_FAMILY_OPTIONS,
+  FONT_SIZE_PRESETS,
 } from "@/lib/post-schema";
 import { BackgroundPicker } from "./background-picker";
 import { rewriteHeadline as rewriteHeadlineApi } from "@/lib/api-client";
@@ -92,7 +94,7 @@ export function Controls({ post, onChange, onExport, exporting }: Props) {
           </select>
         </Field>
 
-        <Field label="Font style">
+        <Field label="Style preset">
           <SegmentedControl
             options={FONT_STYLE_OPTIONS.map((f) => ({ value: f.kind, label: f.name, title: f.description }))}
             value={post.fontStyle}
@@ -101,7 +103,24 @@ export function Controls({ post, onChange, onExport, exporting }: Props) {
         </Field>
       </div>
 
-      <Field label="Font size">
+      <div className="grid grid-cols-3 gap-3">
+        <div className="col-span-2">
+          <Field label="Headline font">
+            <FontFamilyPicker
+              value={post.headlineFont}
+              onChange={(v) => onChange({ ...post, headlineFont: v })}
+            />
+          </Field>
+        </div>
+        <Field label="Size (px)">
+          <FontSizePicker
+            value={post.headlineSize}
+            onChange={(n) => onChange({ ...post, headlineSize: n })}
+          />
+        </Field>
+      </div>
+
+      <Field label="Auto size preset (when Size = Auto)">
         <SegmentedControl
           options={FONT_SCALE_OPTIONS.map((s) => ({ value: s.kind, label: s.label, title: s.description }))}
           value={post.fontScale}
@@ -322,6 +341,150 @@ function SegmentedControl({
           </button>
         );
       })}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Word-style font family picker — grouped <select> where each option
+// previews itself in its own font. Server-rendered fonts that aren't
+// loaded fall back to system equivalents (acceptable for MVP).
+// ---------------------------------------------------------------------------
+function FontFamilyPicker({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+}) {
+  const groups: Record<string, typeof FONT_FAMILY_OPTIONS> = {
+    Sans: [],
+    Display: [],
+    Serif: [],
+    Mono: [],
+  };
+  for (const f of FONT_FAMILY_OPTIONS) {
+    const cap = f.category.charAt(0).toUpperCase() + f.category.slice(1);
+    if (!groups[cap]) groups[cap] = [];
+    groups[cap].push(f);
+  }
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="w-full rounded-md border border-[var(--color-map-border)] bg-[var(--color-map-land)]/40 px-3 py-2 text-sm text-[var(--color-ink-primary)] focus:border-[var(--color-accent)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/30"
+      style={{ fontFamily: `"${value}", system-ui, sans-serif` }}
+    >
+      {Object.entries(groups).map(([label, list]) =>
+        list.length === 0 ? null : (
+          <optgroup key={label} label={label}>
+            {list.map((f) => (
+              <option
+                key={f.family}
+                value={f.family}
+                style={{ fontFamily: `"${f.family}", system-ui, sans-serif` }}
+              >
+                {f.family}
+                {f.description ? ` — ${f.description}` : ""}
+              </option>
+            ))}
+          </optgroup>
+        ),
+      )}
+    </select>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Word-style numeric size picker. 0 = Auto. Combobox: type a number, or
+// pick from common preset sizes. Up/down arrows step by 4px.
+// ---------------------------------------------------------------------------
+function FontSizePicker({
+  value,
+  onChange,
+}: {
+  value: number;
+  onChange: (next: number) => void;
+}) {
+  // Local draft text so users can clear/edit freely; commit on blur or Enter.
+  // Resetting to a different `value` from outside is rare (preset change),
+  // so we key the input on `value` to force a remount on external resets.
+  const [draft, setDraft] = useState<string>(value > 0 ? String(value) : "");
+
+  function commit(raw: string) {
+    const trimmed = raw.trim();
+    if (!trimmed) {
+      onChange(0);
+      setDraft("");
+      return;
+    }
+    const n = Math.round(Number(trimmed));
+    if (!Number.isFinite(n) || n <= 0) {
+      onChange(0);
+      setDraft("");
+      return;
+    }
+    const clamped = Math.max(8, Math.min(280, n));
+    onChange(clamped);
+    setDraft(String(clamped));
+  }
+
+  function bump(delta: number) {
+    const current = value > 0 ? value : 96;
+    const next = Math.max(8, Math.min(280, current + delta));
+    onChange(next);
+    setDraft(String(next));
+  }
+
+  return (
+    <div className="flex items-stretch gap-1">
+      <div className="relative flex-1">
+        <input
+          type="text"
+          inputMode="numeric"
+          list="bro-font-sizes"
+          value={draft}
+          placeholder="Auto"
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={(e) => commit(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              commit((e.target as HTMLInputElement).value);
+            } else if (e.key === "ArrowUp") {
+              e.preventDefault();
+              bump(4);
+            } else if (e.key === "ArrowDown") {
+              e.preventDefault();
+              bump(-4);
+            }
+          }}
+          className="w-full rounded-md border border-[var(--color-map-border)] bg-[var(--color-map-land)]/40 px-3 py-2 text-sm text-[var(--color-ink-primary)] focus:border-[var(--color-accent)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/30"
+        />
+        <datalist id="bro-font-sizes">
+          {FONT_SIZE_PRESETS.map((s) => (
+            <option key={s} value={s} />
+          ))}
+        </datalist>
+      </div>
+      <div className="flex flex-col">
+        <button
+          type="button"
+          onClick={() => bump(4)}
+          aria-label="Increase size"
+          className="flex-1 rounded-t border border-[var(--color-map-border)] bg-[var(--color-map-land)]/40 px-2 text-xs text-[var(--color-ink-secondary)] hover:text-[var(--color-ink-primary)]"
+        >
+          ▲
+        </button>
+        <button
+          type="button"
+          onClick={() => bump(-4)}
+          aria-label="Decrease size"
+          className="flex-1 rounded-b border-x border-b border-[var(--color-map-border)] bg-[var(--color-map-land)]/40 px-2 text-xs text-[var(--color-ink-secondary)] hover:text-[var(--color-ink-primary)]"
+        >
+          ▼
+        </button>
+      </div>
     </div>
   );
 }
