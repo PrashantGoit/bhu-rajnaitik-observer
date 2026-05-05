@@ -1,0 +1,11 @@
+{
+  "framework": "nextjs",
+  "buildCommand": "pnpm build",
+  "installCommand": "pnpm install --no-frozen-lockfile",
+  "functions": {
+    "src/app/api/render/route.ts": { "memory": 1024, "maxDuration": 30 },
+    "src/app/api/ai/background/route.ts": { "maxDuration": 60 },
+    "src/app/api/ai/rewrite/route.ts": { "maxDuration": 30 },
+    "src/app/api/upload/route.ts": { "memory": 1024, "maxDuration": 30 }
+  }
+}

@@ -25,12 +25,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Enter a valid email." }, { status: 400 });
   }
 
+  const record = JSON.stringify({ email, at: new Date().toISOString() });
   try {
     await fs.mkdir(path.dirname(STORE_PATH), { recursive: true });
-    const record = JSON.stringify({ email, at: new Date().toISOString() }) + "\n";
-    await fs.appendFile(STORE_PATH, record, "utf8");
+    await fs.appendFile(STORE_PATH, record + "\n", "utf8");
   } catch {
-    return NextResponse.json({ error: "Could not save. Try again." }, { status: 500 });
+    // Read-only filesystem (e.g. Vercel) — degrade gracefully so the form
+    // still works for the alpha. Replace with Supabase before launch.
+    console.log("[waitlist]", record);
   }
 
   return NextResponse.json({ ok: true });

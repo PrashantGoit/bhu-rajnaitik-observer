@@ -1,9 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import sharp from "sharp";
-import { promises as fs } from "node:fs";
-import path from "node:path";
-import { randomUUID, createHash } from "node:crypto";
+import { createHash } from "node:crypto";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,15 +28,12 @@ export async function POST(request: Request) {
 
   const apiKey = process.env.OPENAI_API_KEY;
   const hasUsableKey = !!apiKey && apiKey.startsWith("sk-") && apiKey.length >= 20;
-  const uploadsDir = path.join(process.cwd(), "public", "uploads");
-  await fs.mkdir(uploadsDir, { recursive: true });
 
   if (!hasUsableKey) {
     // Stub: deterministic procedural SVG keyed off prompt hash.
-    const id = randomUUID();
     const svg = stubProceduralSvg(prompt);
-    await fs.writeFile(path.join(uploadsDir, `${id}.svg`), svg, "utf8");
-    return NextResponse.json({ url: `/uploads/${id}.svg`, source: "stub" });
+    const dataUrl = `data:image/svg+xml;base64,${Buffer.from(svg, "utf8").toString("base64")}`;
+    return NextResponse.json({ url: dataUrl, source: "stub" });
   }
 
   try {
@@ -79,9 +74,8 @@ export async function POST(request: Request) {
       .resize(1080, 1080, { fit: "cover" })
       .webp({ quality: 88 })
       .toBuffer();
-    const id = randomUUID();
-    await fs.writeFile(path.join(uploadsDir, `${id}.webp`), outBuf);
-    return NextResponse.json({ url: `/uploads/${id}.webp`, source: "openai" });
+    const dataUrl = `data:image/webp;base64,${outBuf.toString("base64")}`;
+    return NextResponse.json({ url: dataUrl, source: "openai" });
   } catch {
     return NextResponse.json({ error: "Failed to reach AI provider" }, { status: 502 });
   }

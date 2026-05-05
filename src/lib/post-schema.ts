@@ -14,7 +14,8 @@ export const BackgroundSchema = z.discriminatedUnion("kind", [
   }),
   z.object({
     kind: z.literal("upload"),
-    src: z.string().min(1).max(512),
+    // Allows http(s)://, /uploads/..., and data: URLs (data URLs can be ~7MB).
+    src: z.string().min(1).max(8_000_000),
   }),
   z.object({
     kind: z.literal("solid"),

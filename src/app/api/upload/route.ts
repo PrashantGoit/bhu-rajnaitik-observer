@@ -1,8 +1,5 @@
 import { NextResponse } from "next/server";
 import sharp from "sharp";
-import { promises as fs } from "node:fs";
-import path from "node:path";
-import { randomUUID } from "node:crypto";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -43,11 +40,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Could not process image" }, { status: 422 });
   }
 
-  const id = randomUUID();
-  const filename = `${id}.webp`;
-  const uploadsDir = path.join(process.cwd(), "public", "uploads");
-  await fs.mkdir(uploadsDir, { recursive: true });
-  await fs.writeFile(path.join(uploadsDir, filename), outputBuffer);
-
-  return NextResponse.json({ url: `/uploads/${filename}` });
+  // Stateless: return as a data URL so this works on read-only hosts (Vercel).
+  const dataUrl = `data:image/webp;base64,${outputBuffer.toString("base64")}`;
+  return NextResponse.json({ url: dataUrl });
 }
