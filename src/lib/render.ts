@@ -2,6 +2,31 @@ import type { FontStyle, Post, Tag } from "./post-schema";
 import { FORMAT_DIMENSIONS, TAG_OPTIONS } from "./post-schema";
 
 // ---------------------------------------------------------------------------
+// Headline scale — user-facing "size" preset that nudges the auto-fit range
+// up or down. The auto-fitter still enforces maxHeight + maxLines, so picking
+// XL never causes overlap: fitFontSize will step back down if the bigger max
+// can't fit. SM lowers BOTH min and max so genuinely smaller text is allowed.
+// LG/XL only raise max so safe min remains the fallback floor.
+// ---------------------------------------------------------------------------
+function scaleHeadlineRange(
+  scale: Post["fontScale"] | undefined,
+  minSize: number,
+  maxSize: number,
+): { minSize: number; maxSize: number } {
+  switch (scale) {
+    case "sm":
+      return { minSize: Math.round(minSize * 0.85), maxSize: Math.round(maxSize * 0.85) };
+    case "lg":
+      return { minSize, maxSize: Math.round(maxSize * 1.18) };
+    case "xl":
+      return { minSize, maxSize: Math.round(maxSize * 1.35) };
+    case "md":
+    default:
+      return { minSize, maxSize };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Design tokens (locked — match docs/LAUNCH_PACKAGE.md and globals.css)
 // ---------------------------------------------------------------------------
 export const TOKENS = {
@@ -708,12 +733,13 @@ function drawBreaking(
   const subGap = post.subheadline ? 28 : 0;
   const headlineMaxH = usableH - subBlockH - subGap - underlineH - underlineGap;
 
+  const hRange = scaleHeadlineRange(post.fontScale, 56, 144);
   const headlineFit = fitFontSize(post.headline, {
     maxWidth: contentW,
     maxHeight: headlineMaxH,
     maxLines: 4,
-    minSize: 56,
-    maxSize: 144,
+    minSize: hRange.minSize,
+    maxSize: hRange.maxSize,
     family: fonts.display,
     weight: 800,
     uppercase: false,
@@ -842,12 +868,13 @@ function drawStat(
   const valueMaxH = usableH - stack;
   const valueMaxSize = Math.min(Math.floor(w * 0.34), Math.max(180, Math.floor(valueMaxH * 0.95)));
 
+  const vRange = scaleHeadlineRange(post.fontScale, 120, valueMaxSize);
   const valueFit = fitFontSize(stat.value, {
     maxWidth: contentW,
     maxHeight: Math.max(160, valueMaxH),
     maxLines: 1,
-    minSize: 120,
-    maxSize: valueMaxSize,
+    minSize: vRange.minSize,
+    maxSize: vRange.maxSize,
     family: fonts.display,
     weight: 800,
     uppercase: false,
@@ -960,12 +987,13 @@ function drawQuote(
     align: "left",
   });
 
+  const quoteRange = scaleHeadlineRange(post.fontScale, 36, 88);
   const quoteFit = fitFontSize(post.headline, {
     maxWidth: contentW,
     maxHeight: usableH - 200,
     maxLines: 6,
-    minSize: 36,
-    maxSize: 88,
+    minSize: quoteRange.minSize,
+    maxSize: quoteRange.maxSize,
     family: fonts.display,
     weight: 700,
     uppercase: false,
@@ -1053,12 +1081,13 @@ function drawMinimal(
     subBlockH = subLines.length * subSize * 1.4;
   }
 
+  const mRange = scaleHeadlineRange(post.fontScale, 48, 120);
   const headlineFit = fitFontSize(post.headline, {
     maxWidth: contentW,
     maxHeight: usableH - subBlockH - 32,
     maxLines: 5,
-    minSize: 48,
-    maxSize: 120,
+    minSize: mRange.minSize,
+    maxSize: mRange.maxSize,
     family: fonts.display,
     weight: 800,
     uppercase: false,
@@ -1140,12 +1169,13 @@ function drawCentered(
   const sepH = 2;
   const headlineMaxH = usableH - subBlockH - (post.subheadline ? sepGap * 2 + sepH : 0);
 
+  const cRange = scaleHeadlineRange(post.fontScale, 56, 132);
   const headlineFit = fitFontSize(post.headline, {
     maxWidth: contentW,
     maxHeight: headlineMaxH,
     maxLines: 5,
-    minSize: 56,
-    maxSize: 132,
+    minSize: cRange.minSize,
+    maxSize: cRange.maxSize,
     family: fonts.display,
     weight: 800,
     uppercase: false,

@@ -23,6 +23,7 @@ const basePost: Post = {
   layout: "breaking",
   tag: { kind: "breaking" },
   fontStyle: "display",
+  fontScale: "md",
 };
 
 describe("/api/render", () => {
@@ -196,5 +197,34 @@ describe("highlight word matching (computeLayout)", () => {
     const segs = headlineSegments(layout);
     const red = segs.filter((s) => s.fill === accent).map((s) => s.text).join("");
     expect(red.toUpperCase()).toContain("IRAN");
+  });
+});
+
+describe("font scale (computeLayout)", () => {
+  async function headlineSizeFor(scale: Post["fontScale"]) {
+    const { computeLayout } = await import("@/lib/render");
+    const layout = computeLayout(
+      { ...basePost, headline: "Iran strikes Tehran", fontScale: scale },
+      false,
+    );
+    type Cmd = { kind: string; lines?: Array<{ size?: number; fontSize?: number }> };
+    const block = (layout.commands as Cmd[]).find(
+      (c) => c.kind === "text-block" && (c.lines?.length ?? 0) > 0,
+    );
+    const ln = block?.lines?.[0];
+    return ln?.size ?? ln?.fontSize ?? 0;
+  }
+
+  it("xl produces a larger headline than sm", async () => {
+    const small = await headlineSizeFor("sm");
+    const xl = await headlineSizeFor("xl");
+    expect(xl).toBeGreaterThan(small);
+  });
+
+  it("renders successfully across all font scales", async () => {
+    for (const scale of ["sm", "md", "lg", "xl"] as const) {
+      const res = await POST(makeRequest({ ...basePost, fontScale: scale }));
+      expect(res.status).toBe(200);
+    }
   });
 });

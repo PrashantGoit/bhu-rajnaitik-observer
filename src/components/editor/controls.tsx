@@ -7,6 +7,7 @@ import {
   LAYOUT_OPTIONS,
   TAG_OPTIONS,
   FONT_STYLE_OPTIONS,
+  FONT_SCALE_OPTIONS,
 } from "@/lib/post-schema";
 import { BackgroundPicker } from "./background-picker";
 import { rewriteHeadline as rewriteHeadlineApi } from "@/lib/api-client";
@@ -92,19 +93,21 @@ export function Controls({ post, onChange, onExport, exporting }: Props) {
         </Field>
 
         <Field label="Font style">
-          <select
+          <SegmentedControl
+            options={FONT_STYLE_OPTIONS.map((f) => ({ value: f.kind, label: f.name, title: f.description }))}
             value={post.fontStyle}
-            onChange={(e) => onChange({ ...post, fontStyle: e.target.value as Post["fontStyle"] })}
-            className={selectCls}
-          >
-            {FONT_STYLE_OPTIONS.map((f) => (
-              <option key={f.kind} value={f.kind}>
-                {f.name}
-              </option>
-            ))}
-          </select>
+            onChange={(v) => onChange({ ...post, fontStyle: v as Post["fontStyle"] })}
+          />
         </Field>
       </div>
+
+      <Field label="Font size">
+        <SegmentedControl
+          options={FONT_SCALE_OPTIONS.map((s) => ({ value: s.kind, label: s.label, title: s.description }))}
+          value={post.fontScale}
+          onChange={(v) => onChange({ ...post, fontScale: v as Post["fontScale"] })}
+        />
+      </Field>
 
       {post.tag.kind === "custom" ? (
         <Field label="Custom tag label">
@@ -288,6 +291,40 @@ function Field({
 }
 
 const MAX_HIGHLIGHTS = 8;
+
+function SegmentedControl({
+  options,
+  value,
+  onChange,
+}: {
+  options: Array<{ value: string; label: string; title?: string }>;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div className="flex gap-0.5 rounded-md border border-[var(--color-map-border)] bg-[var(--color-map-land)]/40 p-0.5">
+      {options.map((o) => {
+        const active = o.value === value;
+        return (
+          <button
+            key={o.value}
+            type="button"
+            title={o.title}
+            onClick={() => onChange(o.value)}
+            className={
+              "flex-1 rounded px-2 py-1.5 font-mono text-xs font-semibold uppercase tracking-wider transition-colors " +
+              (active
+                ? "bg-[var(--color-accent)] text-white"
+                : "text-[var(--color-ink-secondary)] hover:text-[var(--color-ink-primary)]")
+            }
+          >
+            {o.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 function HighlightTagInput({
   value,

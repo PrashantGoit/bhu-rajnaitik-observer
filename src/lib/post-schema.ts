@@ -42,6 +42,7 @@ export const TagSchema = z.object({
 });
 
 export const FontStyleSchema = z.enum(["display", "editorial", "techno"]);
+export const FontScaleSchema = z.enum(["sm", "md", "lg", "xl"]);
 
 export const StatSchema = z.object({
   value: z.string().min(1).max(16),
@@ -59,6 +60,7 @@ export const PostSchema = z.object({
   layout: LayoutKindSchema.default("breaking"),
   tag: TagSchema.default({ kind: "breaking" }),
   fontStyle: FontStyleSchema.default("display"),
+  fontScale: FontScaleSchema.default("md"),
   stat: StatSchema.optional(),
   attribution: z.string().max(80).optional(),
 });
@@ -70,6 +72,7 @@ export type LayoutKind = z.infer<typeof LayoutKindSchema>;
 export type TagKind = z.infer<typeof TagKindSchema>;
 export type Tag = z.infer<typeof TagSchema>;
 export type FontStyle = z.infer<typeof FontStyleSchema>;
+export type FontScale = z.infer<typeof FontScaleSchema>;
 export type Stat = z.infer<typeof StatSchema>;
 
 export const FORMAT_DIMENSIONS: Record<Format, { width: number; height: number }> = {
@@ -108,6 +111,13 @@ export const FONT_STYLE_OPTIONS: Array<{ kind: FontStyle; name: string; descript
   { kind: "display", name: "Display", description: "Inter Tight — BRO voice" },
   { kind: "editorial", name: "Editorial", description: "Inter — longform" },
   { kind: "techno", name: "Techno", description: "JetBrains Mono — intel" },
+];
+
+export const FONT_SCALE_OPTIONS: Array<{ kind: FontScale; label: string; description: string }> = [
+  { kind: "sm", label: "S", description: "Compact — fits more text" },
+  { kind: "md", label: "M", description: "Balanced (default)" },
+  { kind: "lg", label: "L", description: "Bold — short headlines" },
+  { kind: "xl", label: "XL", description: "Maximum impact" },
 ];
 
 export const FORMAT_OPTIONS: Array<{ kind: Format; name: string; description: string }> = [

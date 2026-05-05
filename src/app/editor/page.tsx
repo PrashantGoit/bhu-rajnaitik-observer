@@ -25,6 +25,7 @@ const INITIAL_POST: Post = {
   layout: "centered",
   tag: { kind: "breaking" },
   fontStyle: "display",
+  fontScale: "md",
 };
 
 export default function EditorPage() {
