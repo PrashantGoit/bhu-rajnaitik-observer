@@ -53,6 +53,7 @@ export const PostSchema = z.object({
   subheadline: z.string().max(200).default(""),
   countryName: z.string().max(48).nullable().default(null),
   highlightWords: z.array(z.string().min(1).max(40)).max(8).default([]),
+  hashtags: z.array(z.string().min(1).max(30)).max(8).default([]),
   format: FormatSchema.default("1080x1080"),
   layout: LayoutKindSchema.default("breaking"),
   tag: TagSchema.default({ kind: "breaking" }),

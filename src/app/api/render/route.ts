@@ -60,6 +60,11 @@ async function draw(ctx: Ctx, cmd: DrawCmd): Promise<void> {
     return;
   }
 
+  if (cmd.kind === "text-block") {
+    drawTextBlock(ctx, cmd);
+    return;
+  }
+
   if (cmd.kind === "image") {
     try {
       const img = await loadImageForCmd(cmd.src);
@@ -155,4 +160,50 @@ function drawTextWithSpacing(
     ctx.fillText(text[i], cursor, y);
     cursor += widths[i] + letterSpacing;
   }
+}
+
+function drawTextBlock(
+  ctx: Ctx,
+  cmd: Extract<DrawCmd, { kind: "text-block" }>,
+): void {
+  ctx.save();
+  ctx.textBaseline = "top";
+  for (let i = 0; i < cmd.lines.length; i++) {
+    const line = cmd.lines[i];
+    const y = cmd.y + i * line.fontSize * cmd.lineHeight;
+    ctx.font = `${line.fontWeight} ${line.fontSize}px ${mapFontFamily(line.fontFamily)}`;
+    const ls = line.letterSpacing;
+    // Measure each segment as the sum of per-character widths so spacing math
+    // matches drawTextWithSpacing.
+    const segWidths = line.segments.map((s) => {
+      const text = line.uppercase ? s.text.toUpperCase() : s.text;
+      const chars = Array.from(text);
+      const w = chars.reduce((acc, ch) => acc + ctx.measureText(ch).width, 0);
+      return w + ls * Math.max(0, chars.length - 1);
+    });
+    const totalW =
+      segWidths.reduce((a, b) => a + b, 0) +
+      ls * Math.max(0, line.segments.length - 1);
+
+    let cursor = cmd.x;
+    if (line.align === "center") cursor = cmd.x + (cmd.w - totalW) / 2;
+    else if (line.align === "right") cursor = cmd.x + cmd.w - totalW;
+
+    ctx.textAlign = "left";
+    for (let s = 0; s < line.segments.length; s++) {
+      const seg = line.segments[s];
+      const text = line.uppercase ? seg.text.toUpperCase() : seg.text;
+      ctx.fillStyle = seg.fill;
+      const chars = Array.from(text);
+      for (const ch of chars) {
+        ctx.fillText(ch, cursor, y);
+        cursor += ctx.measureText(ch).width + ls;
+      }
+      // Subtract the trailing letterSpacing from the last char of the segment
+      // and add inter-segment letterSpacing once (to keep parity).
+      cursor -= ls;
+      if (s < line.segments.length - 1) cursor += ls;
+    }
+  }
+  ctx.restore();
 }

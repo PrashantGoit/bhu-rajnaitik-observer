@@ -52,3 +52,5 @@ next-env.d.ts
 /playwright/.cache/
 test-output.png
 
+out_samples/
+.next/

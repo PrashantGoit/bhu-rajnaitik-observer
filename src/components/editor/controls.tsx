@@ -177,6 +177,50 @@ export function Controls({ post, onChange, onExport, exporting }: Props) {
         />
       </Field>
 
+      <Field label="Highlight words (red)">
+        <input
+          type="text"
+          value={post.highlightWords.join(", ")}
+          onChange={(e) =>
+            onChange({
+              ...post,
+              highlightWords: e.target.value
+                .split(",")
+                .map((s) => s.trim())
+                .filter(Boolean)
+                .slice(0, 8),
+            })
+          }
+          placeholder="Iran, strike, sanctions"
+          className={inputCls}
+        />
+        <span className="mt-1 block font-mono text-[10px] uppercase tracking-wider text-[var(--color-ink-secondary)]">
+          comma-separated · matched as whole words · up to 8
+        </span>
+      </Field>
+
+      <Field label="Hashtags">
+        <input
+          type="text"
+          value={post.hashtags.join(", ")}
+          onChange={(e) =>
+            onChange({
+              ...post,
+              hashtags: e.target.value
+                .split(",")
+                .map((s) => s.replace(/^#+/, "").trim())
+                .filter(Boolean)
+                .slice(0, 8),
+            })
+          }
+          placeholder="geopolitics, breaking, iran"
+          className={inputCls}
+        />
+        <span className="mt-1 block font-mono text-[10px] uppercase tracking-wider text-[var(--color-ink-secondary)]">
+          comma-separated · # added automatically · up to 8
+        </span>
+      </Field>
+
       {post.layout === "stat" ? (
         <div className="grid grid-cols-2 gap-3 rounded-md border border-[var(--color-map-border)] bg-[var(--color-map-land)]/20 p-3">
           <Field label="Stat value">

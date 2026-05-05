@@ -94,4 +94,41 @@ describe("/api/render", () => {
     const res = await POST(makeRequest(post));
     expect(res.status).toBe(200);
   });
+
+  it("renders headline with red highlightWords without crashing", async () => {
+    const res = await POST(
+      makeRequest({ ...basePost, highlightWords: ["Iran", "strikes"] }),
+    );
+    expect(res.status).toBe(200);
+    const buf = Buffer.from(await res.arrayBuffer());
+    expect(buf.byteLength).toBeGreaterThan(1024);
+    for (let i = 0; i < PNG_MAGIC.length; i++) expect(buf[i]).toBe(PNG_MAGIC[i]);
+  });
+
+  it("renders hashtags row", async () => {
+    const res = await POST(
+      makeRequest({ ...basePost, hashtags: ["geopolitics", "#breaking", "iran"] }),
+    );
+    expect(res.status).toBe(200);
+    const buf = Buffer.from(await res.arrayBuffer());
+    expect(buf.byteLength).toBeGreaterThan(1024);
+  });
+
+  it("does not overflow with an absurdly long unbreakable word", async () => {
+    const long = "supercalifragilisticexpialidocious".repeat(3).slice(0, 120);
+    const res = await POST(makeRequest({ ...basePost, headline: long }));
+    expect(res.status).toBe(200);
+  });
+
+  it("stat layout renders with empty subheadline (no overlap collision)", async () => {
+    const res = await POST(
+      makeRequest({
+        ...basePost,
+        layout: "stat",
+        subheadline: "",
+        stat: { value: "78%", label: "approval drop" },
+      }),
+    );
+    expect(res.status).toBe(200);
+  });
 });

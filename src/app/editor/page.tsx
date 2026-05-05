@@ -17,7 +17,8 @@ const INITIAL_POST: Post = {
   subheadline:
     "Tehran's deterrence calculus shifts as ballistic missile salvos target Negev base.",
   countryName: "Iran",
-  highlightWords: [],
+  highlightWords: ["Iran", "strikes"],
+  hashtags: ["geopolitics", "breaking"],
   format: "1080x1080",
   layout: "centered",
   tag: { kind: "breaking" },

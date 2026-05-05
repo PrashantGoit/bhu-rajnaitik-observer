@@ -1,14 +1,9 @@
 import type { FontStyle, Post, Tag } from "./post-schema";
 import { FORMAT_DIMENSIONS, TAG_OPTIONS } from "./post-schema";
 
-/**
- * Pure layout module — produces an ordered list of draw commands that both
- * the Konva live preview and the server-side @napi-rs/canvas renderer iterate.
- *
- * Inputs and outputs are plain data so layouts are unit-testable without any
- * actual rendering surface.
- */
-
+// ---------------------------------------------------------------------------
+// Design tokens (locked — match docs/LAUNCH_PACKAGE.md and globals.css)
+// ---------------------------------------------------------------------------
 export const TOKENS = {
   bgBase: "#0B0F14",
   mapLand: "#1A2330",
@@ -23,8 +18,41 @@ export const TOKENS = {
 export const SAFE_MARGIN = 64;
 export const BRAND_FOOTER_HEIGHT = 240;
 
+// ---------------------------------------------------------------------------
+// DrawCmd — emitted by computeLayout, consumed by both server canvas and Konva
+// ---------------------------------------------------------------------------
+export type Align = "left" | "center" | "right";
+
+export interface TextSegment {
+  text: string;
+  fill: string;
+}
+
+export interface TextLineSpec {
+  /** Pre-wrapped concatenated string for measurement parity */
+  text: string;
+  /** Optional multi-color segments. If absent, single fill is applied. */
+  segments?: TextSegment[];
+}
+
 export type DrawCmd =
-  | { kind: "rect"; x: number; y: number; w: number; h: number; fill: string; opacity?: number }
+  | {
+      kind: "rect";
+      x: number;
+      y: number;
+      w: number;
+      h: number;
+      fill: string;
+      opacity?: number;
+    }
+  | {
+      kind: "highlight-bar";
+      x: number;
+      y: number;
+      w: number;
+      h: number;
+      fill: string;
+    }
   | {
       kind: "image";
       x: number;
@@ -32,7 +60,6 @@ export type DrawCmd =
       w: number;
       h: number;
       src: string;
-      fit: "cover" | "contain";
       opacity?: number;
     }
   | {
@@ -46,11 +73,27 @@ export type DrawCmd =
       fontWeight: number;
       fill: string;
       lineHeight: number;
-      align: "left" | "center" | "right";
+      align: Align;
       letterSpacing?: number;
       uppercase?: boolean;
     }
-  | { kind: "highlight-bar"; x: number; y: number; w: number; h: number; fill: string };
+  | {
+      kind: "text-block";
+      /** Bounding box (used for alignment math) */
+      x: number;
+      y: number;
+      w: number;
+      lineHeight: number;
+      lines: Array<{
+        segments: TextSegment[];
+        align: Align;
+        fontFamily: string;
+        fontSize: number;
+        fontWeight: number;
+        letterSpacing: number;
+        uppercase: boolean;
+      }>;
+    };
 
 export interface Layout {
   width: number;
@@ -58,6 +101,9 @@ export interface Layout {
   commands: DrawCmd[];
 }
 
+// ---------------------------------------------------------------------------
+// Font pairs
+// ---------------------------------------------------------------------------
 interface FontPair {
   display: string;
   body: string;
@@ -70,107 +116,297 @@ const FONT_PAIRS: Record<FontStyle, FontPair> = {
   techno: { display: "JetBrains Mono", body: "JetBrains Mono", mono: "JetBrains Mono" },
 };
 
-export function computeLayout(post: Post, withWatermark = false): Layout {
-  const { width, height } = FORMAT_DIMENSIONS[post.format];
+// ---------------------------------------------------------------------------
+// Width estimation — empirical character-width ratios per font family.
+// These are calibrated against rendered Inter / Inter Tight / JetBrains Mono
+// so wrap decisions match what the canvas actually paints within ~3%.
+// ---------------------------------------------------------------------------
+function avgCharRatio(family: string, weight: number, uppercase: boolean): number {
+  if (family === "JetBrains Mono") return uppercase ? 0.62 : 0.60;
+  if (family === "Inter Tight") {
+    const base = weight >= 700 ? 0.54 : 0.50;
+    return uppercase ? base + 0.07 : base;
+  }
+  // Inter
+  const base = weight >= 700 ? 0.52 : 0.48;
+  return uppercase ? base + 0.08 : base;
+}
+
+function estimateTextWidth(
+  text: string,
+  family: string,
+  weight: number,
+  size: number,
+  uppercase: boolean,
+  letterSpacing: number,
+): number {
+  if (!text) return 0;
+  const ratio = avgCharRatio(family, weight, uppercase);
+  return text.length * size * ratio + Math.max(0, text.length - 1) * letterSpacing;
+}
+
+interface WrapResult {
+  lines: string[];
+  /** Whether at least one line had to be force-broken (single word too wide) */
+  forced: boolean;
+}
+
+function wrapWords(
+  text: string,
+  maxWidth: number,
+  family: string,
+  weight: number,
+  size: number,
+  uppercase: boolean,
+  letterSpacing: number,
+): WrapResult {
+  const trimmed = text.trim();
+  if (!trimmed) return { lines: [""], forced: false };
+
+  const measure = (s: string) =>
+    estimateTextWidth(s, family, weight, size, uppercase, letterSpacing);
+
+  const lines: string[] = [];
+  let forced = false;
+
+  const paragraphs = trimmed.split(/\n+/);
+  for (const para of paragraphs) {
+    const words = para.split(/\s+/).filter(Boolean);
+    if (words.length === 0) {
+      lines.push("");
+      continue;
+    }
+    let current = "";
+    for (const word of words) {
+      const candidate = current ? `${current} ${word}` : word;
+      if (measure(candidate) <= maxWidth) {
+        current = candidate;
+        continue;
+      }
+      if (current) {
+        lines.push(current);
+      }
+      // Word alone exceeds width: hard-break by character (rare but bounded)
+      if (measure(word) > maxWidth) {
+        forced = true;
+        let chunk = "";
+        for (const ch of word) {
+          const next = chunk + ch;
+          if (measure(next) > maxWidth && chunk) {
+            lines.push(chunk);
+            chunk = ch;
+          } else {
+            chunk = next;
+          }
+        }
+        current = chunk;
+      } else {
+        current = word;
+      }
+    }
+    if (current) lines.push(current);
+  }
+  return { lines, forced };
+}
+
+/**
+ * Pick the largest font size where the wrapped headline fits within both the
+ * line count budget and the height budget. Adapts to text length: short
+ * headlines get the biggest size, long ones step down gracefully.
+ */
+function fitFontSize(
+  text: string,
+  opts: {
+    maxWidth: number;
+    maxHeight: number;
+    maxLines: number;
+    minSize: number;
+    maxSize: number;
+    family: string;
+    weight: number;
+    uppercase: boolean;
+    letterSpacing: (size: number) => number;
+    lineHeight: number;
+  },
+): { size: number; lines: string[] } {
+  // Try sizes from largest to smallest in 4px steps for stable layout
+  for (let size = opts.maxSize; size >= opts.minSize; size -= 4) {
+    const ls = opts.letterSpacing(size);
+    const wrap = wrapWords(text, opts.maxWidth, opts.family, opts.weight, size, opts.uppercase, ls);
+    if (wrap.lines.length > opts.maxLines) continue;
+    const blockH = wrap.lines.length * size * opts.lineHeight;
+    if (blockH > opts.maxHeight) continue;
+    return { size, lines: wrap.lines };
+  }
+  // Fall through: smallest size, accept overflow but truncate lines
+  const ls = opts.letterSpacing(opts.minSize);
+  const wrap = wrapWords(
+    text,
+    opts.maxWidth,
+    opts.family,
+    opts.weight,
+    opts.minSize,
+    opts.uppercase,
+    ls,
+  );
+  return { size: opts.minSize, lines: wrap.lines.slice(0, opts.maxLines) };
+}
+
+// ---------------------------------------------------------------------------
+// Highlight word segmentation — splits a line into [{text, fill}] segments
+// where words matching `highlightWords` (case-insensitive) get accent red.
+// ---------------------------------------------------------------------------
+function buildHighlightedSegments(
+  line: string,
+  highlightWords: string[],
+  baseFill: string,
+  highlightFill: string,
+  uppercase: boolean,
+): TextSegment[] {
+  if (!highlightWords.length) return [{ text: line, fill: baseFill }];
+  const display = uppercase ? line.toUpperCase() : line;
+  const norm = highlightWords
+    .map((w) => (uppercase ? w.toUpperCase() : w).trim())
+    .filter(Boolean);
+  if (!norm.length) return [{ text: display, fill: baseFill }];
+
+  // Tokenize on word boundaries while keeping whitespace as its own segment
+  const re = /([A-Za-z0-9'’\-]+|[^A-Za-z0-9'’\-]+)/g;
+  const tokens = display.match(re) ?? [display];
+  const out: TextSegment[] = [];
+  for (const tok of tokens) {
+    const cleanTok = tok.replace(/[^A-Za-z0-9'’\-]/g, "");
+    const isHit = !!cleanTok && norm.some((w) => w === cleanTok);
+    out.push({ text: tok, fill: isHit ? highlightFill : baseFill });
+  }
+  // Coalesce adjacent same-fill segments
+  const coalesced: TextSegment[] = [];
+  for (const s of out) {
+    const last = coalesced[coalesced.length - 1];
+    if (last && last.fill === s.fill) last.text += s.text;
+    else coalesced.push({ ...s });
+  }
+  return coalesced;
+}
+
+// ---------------------------------------------------------------------------
+// Layout entry point
+// ---------------------------------------------------------------------------
+export function computeLayout(post: Post, withWatermark: boolean): Layout {
+  const dims = FORMAT_DIMENSIONS[post.format];
+  const width = dims.width;
+  const height = dims.height;
   const fonts = FONT_PAIRS[post.fontStyle];
   const cmds: DrawCmd[] = [];
 
   drawBackdrop(cmds, post, width, height);
   drawTopAccent(cmds, width);
-  drawTagChip(cmds, post.tag, post.countryName, fonts);
+  const tagBottomY = drawTagChip(cmds, post.tag, post.countryName ?? null, fonts, width);
+
+  const layoutTopY = tagBottomY + 32;
 
   switch (post.layout) {
     case "breaking":
-      drawBreakingLayout(cmds, post, width, height, fonts);
+      drawBreaking(cmds, post, width, height, fonts, layoutTopY);
       break;
     case "stat":
-      drawStatLayout(cmds, post, width, height, fonts);
+      drawStat(cmds, post, width, height, fonts, layoutTopY);
       break;
     case "quote":
-      drawQuoteLayout(cmds, post, width, height, fonts);
+      drawQuote(cmds, post, width, height, fonts, layoutTopY);
       break;
     case "minimal":
-      drawMinimalLayout(cmds, post, width, height, fonts);
+      drawMinimal(cmds, post, width, height, fonts, layoutTopY);
       break;
     case "centered":
-      drawCenteredLayout(cmds, post, width, height, fonts);
+      drawCentered(cmds, post, width, height, fonts, layoutTopY);
       break;
   }
 
+  drawHashtags(cmds, post, width, height, fonts);
   drawBrandingFooter(cmds, width, height, fonts, withWatermark);
 
   return { width, height, commands: cmds };
 }
 
-// ─────────────────────────────────────────────────────────────────────
-// Shared chrome
-// ─────────────────────────────────────────────────────────────────────
-
+// ---------------------------------------------------------------------------
+// Backdrop / chrome
+// ---------------------------------------------------------------------------
 function drawBackdrop(cmds: DrawCmd[], post: Post, w: number, h: number) {
   cmds.push({ kind: "rect", x: 0, y: 0, w, h, fill: TOKENS.bgBase });
   if (post.background.kind === "preset") {
-    cmds.push({ kind: "image", x: 0, y: 0, w, h, src: `/backgrounds/${post.background.slug}.svg`, fit: "cover", opacity: 1 });
+    cmds.push({
+      kind: "image",
+      x: 0,
+      y: 0,
+      w,
+      h,
+      src: `/backgrounds/${post.background.slug}.svg`,
+      opacity: 1,
+    });
   } else if (post.background.kind === "upload") {
-    cmds.push({ kind: "image", x: 0, y: 0, w, h, src: post.background.src, fit: "cover", opacity: 1 });
+    cmds.push({ kind: "image", x: 0, y: 0, w, h, src: post.background.src, opacity: 0.95 });
+    // Dark scrim for legibility
+    cmds.push({ kind: "rect", x: 0, y: 0, w, h, fill: "#000000", opacity: 0.45 });
   } else {
     cmds.push({ kind: "rect", x: 0, y: 0, w, h, fill: post.background.color });
   }
-  // Dual-layer gradient overlay for legibility
-  cmds.push({ kind: "rect", x: 0, y: 0, w, h, fill: TOKENS.bgBase, opacity: 0.45 });
-  cmds.push({
-    kind: "rect",
-    x: 0,
-    y: Math.floor(h * 0.45),
-    w,
-    h: Math.ceil(h * 0.55),
-    fill: TOKENS.bgBase,
-    opacity: 0.55,
-  });
 }
 
 function drawTopAccent(cmds: DrawCmd[], w: number) {
-  cmds.push({ kind: "highlight-bar", x: 0, y: 0, w, h: 8, fill: TOKENS.accent });
+  cmds.push({ kind: "rect", x: 0, y: 0, w, h: 8, fill: TOKENS.accent });
 }
 
-function drawTagChip(cmds: DrawCmd[], tag: Tag, countryName: string | null | undefined, fonts: FontPair) {
-  const opt = TAG_OPTIONS.find((o) => o.kind === tag.kind) ?? TAG_OPTIONS[0];
-  const label = (tag.kind === "custom" && tag.customLabel?.trim()) || opt.label;
+function drawTagChip(
+  cmds: DrawCmd[],
+  tag: Tag,
+  countryName: string | null,
+  fonts: FontPair,
+  w: number,
+): number {
+  const opt = TAG_OPTIONS.find((t) => t.kind === tag.kind) ?? TAG_OPTIONS[0];
+  const labelRaw = tag.kind === "custom" && tag.customLabel ? tag.customLabel : opt.label;
+  const label = labelRaw.toUpperCase();
+  const fillByTone = {
+    red: TOKENS.accent,
+    amber: TOKENS.amber,
+    ink: TOKENS.inkPrimary,
+  } as const;
+  const chipFill = fillByTone[opt.tone];
+  const chipText = opt.tone === "ink" ? TOKENS.bgBase : "#FFFFFF";
 
-  const chipBg = opt.tone === "red" ? TOKENS.accent : opt.tone === "amber" ? TOKENS.amber : TOKENS.inkPrimary;
-  const chipFg = opt.tone === "ink" ? TOKENS.bgBase : TOKENS.inkPrimary;
-
-  // Approximate chip width based on label length (no measureText available here)
   const fontSize = 22;
   const padX = 18;
-  const chipH = 38;
-  const charW = fontSize * 0.72; // mono caps approx
-  const chipW = Math.ceil(label.length * charW + padX * 2);
+  const padY = 10;
+  const chipTextW = estimateTextWidth(label, fonts.mono, 700, fontSize, true, 4);
+  const chipW = Math.ceil(chipTextW + padX * 2);
+  const chipH = fontSize + padY * 2;
+  const x = SAFE_MARGIN;
+  const y = SAFE_MARGIN;
 
-  // Tag chip
-  cmds.push({ kind: "rect", x: SAFE_MARGIN, y: SAFE_MARGIN, w: chipW, h: chipH, fill: chipBg });
+  cmds.push({ kind: "rect", x, y, w: chipW, h: chipH, fill: chipFill });
   cmds.push({
     kind: "text",
-    x: SAFE_MARGIN + padX,
-    y: SAFE_MARGIN + 8,
-    w: chipW - padX * 2,
+    x,
+    y: y + padY - 2,
+    w: chipW,
     text: label,
     fontFamily: fonts.mono,
     fontSize,
     fontWeight: 700,
-    fill: chipFg,
+    fill: chipText,
     lineHeight: 1,
-    align: "left",
-    letterSpacing: 3,
+    align: "center",
+    letterSpacing: 4,
     uppercase: true,
   });
 
-  // Eyebrow / country marker — only show when a country is set; brand goes in footer.
   if (countryName) {
     cmds.push({
       kind: "text",
-      x: SAFE_MARGIN + chipW + 16,
-      y: SAFE_MARGIN + 12,
-      w: 600,
+      x: x + chipW + 16,
+      y: y + padY,
+      w: w - x - chipW - 16 - SAFE_MARGIN,
       text: countryName,
       fontFamily: fonts.mono,
       fontSize: 16,
@@ -182,8 +418,45 @@ function drawTagChip(cmds: DrawCmd[], tag: Tag, countryName: string | null | und
       uppercase: true,
     });
   }
+  return y + chipH;
 }
 
+// ---------------------------------------------------------------------------
+// Hashtags row — sits just above the brand footer
+// ---------------------------------------------------------------------------
+function drawHashtags(cmds: DrawCmd[], post: Post, w: number, h: number, fonts: FontPair) {
+  if (!post.hashtags?.length) return;
+  const tags = post.hashtags
+    .map((t) => t.replace(/^#+/, "").trim())
+    .filter(Boolean)
+    .map((t) => `#${t}`);
+  if (!tags.length) return;
+
+  const text = tags.join("   ");
+  const size = 20;
+  const ls = 2;
+  // Place 28px above the brand footer block
+  const y = h - BRAND_FOOTER_HEIGHT - 36;
+
+  cmds.push({
+    kind: "text",
+    x: SAFE_MARGIN,
+    y,
+    w: w - SAFE_MARGIN * 2,
+    text,
+    fontFamily: fonts.mono,
+    fontSize: size,
+    fontWeight: 600,
+    fill: TOKENS.amber,
+    lineHeight: 1.2,
+    align: "center",
+    letterSpacing: ls,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Brand footer lockup (BHU-RAJNAITIK / line+tick / OBSERVER + domain)
+// ---------------------------------------------------------------------------
 function drawBrandingFooter(
   cmds: DrawCmd[],
   w: number,
@@ -191,9 +464,6 @@ function drawBrandingFooter(
   fonts: FontPair,
   withDomain: boolean,
 ) {
-  // Centered "BHU-RAJNAITIK" / horizontal line + red tick / "OBSERVER" lockup,
-  // mirrors the reference brand identity. Sized relative to canvas width so it
-  // scales gracefully across 1080x1080, 1080x1920, and 1600x900 formats.
   const cx = Math.floor(w / 2);
   const baseSize = Math.min(w, h);
   const titleSize = Math.round(baseSize * 0.045);
@@ -218,7 +488,6 @@ function drawBrandingFooter(
     uppercase: true,
   });
 
-  // Thin white separator line
   cmds.push({
     kind: "highlight-bar",
     x: cx - Math.floor(lineW / 2),
@@ -227,7 +496,6 @@ function drawBrandingFooter(
     h: lineH,
     fill: TOKENS.inkPrimary,
   });
-  // Red tick on the right end
   cmds.push({
     kind: "highlight-bar",
     x: cx + Math.floor(lineW / 2) - tickW,
@@ -271,144 +539,325 @@ function drawBrandingFooter(
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------------
+// Helper: build a multi-line text-block cmd from headline text with per-word
+// red highlighting.
+// ---------------------------------------------------------------------------
+function buildHeadlineBlock(opts: {
+  text: string;
+  highlightWords: string[];
+  x: number;
+  y: number;
+  w: number;
+  family: string;
+  weight: number;
+  size: number;
+  letterSpacing: number;
+  lineHeight: number;
+  align: Align;
+  uppercase: boolean;
+}): { cmd: DrawCmd; height: number; lines: number } {
+  const wrap = wrapWords(
+    opts.text,
+    opts.w,
+    opts.family,
+    opts.weight,
+    opts.size,
+    opts.uppercase,
+    opts.letterSpacing,
+  );
+  const lines = wrap.lines.map((line) => ({
+    segments: buildHighlightedSegments(
+      line,
+      opts.highlightWords,
+      TOKENS.inkPrimary,
+      TOKENS.accent,
+      opts.uppercase,
+    ),
+    align: opts.align,
+    fontFamily: opts.family,
+    fontSize: opts.size,
+    fontWeight: opts.weight,
+    letterSpacing: opts.letterSpacing,
+    uppercase: opts.uppercase,
+  }));
+  return {
+    cmd: {
+      kind: "text-block",
+      x: opts.x,
+      y: opts.y,
+      w: opts.w,
+      lineHeight: opts.lineHeight,
+      lines,
+    },
+    height: lines.length * opts.size * opts.lineHeight,
+    lines: lines.length,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Layouts
-// ─────────────────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------------
+function reservedBottom(post: Post): number {
+  return BRAND_FOOTER_HEIGHT + (post.hashtags?.length ? 56 : 0);
+}
 
-function drawBreakingLayout(cmds: DrawCmd[], post: Post, w: number, h: number, fonts: FontPair) {
-  const headlineSize = computeHeadlineFontSize(post.headline, w - SAFE_MARGIN * 2, 3);
-  const headlineLineHeight = 1.05;
-  const subSize = Math.round(headlineSize * 0.36);
-  const subLineHeight = 1.4;
-  const bottomPad = BRAND_FOOTER_HEIGHT;
+function drawBreaking(
+  cmds: DrawCmd[],
+  post: Post,
+  w: number,
+  h: number,
+  fonts: FontPair,
+  topY: number,
+) {
+  const contentW = w - SAFE_MARGIN * 2;
+  const bottomY = h - reservedBottom(post) - 32;
+  const usableH = bottomY - topY;
 
-  const subEstHeight = post.subheadline
-    ? estimateLines(post.subheadline, w - SAFE_MARGIN * 2, subSize) * subSize * subLineHeight
-    : 0;
-  const headlineEstHeight = estimateLines(post.headline, w - SAFE_MARGIN * 2, headlineSize) * headlineSize * headlineLineHeight;
+  // Subheadline budget
+  let subBlockH = 0;
+  let subLines: string[] = [];
+  let subSize = 30;
+  if (post.subheadline) {
+    const fit = fitFontSize(post.subheadline, {
+      maxWidth: contentW,
+      maxHeight: Math.min(220, usableH * 0.35),
+      maxLines: 4,
+      minSize: 22,
+      maxSize: 32,
+      family: fonts.body,
+      weight: 500,
+      uppercase: false,
+      letterSpacing: () => 0,
+      lineHeight: 1.4,
+    });
+    subSize = fit.size;
+    subLines = fit.lines;
+    subBlockH = subLines.length * subSize * 1.4;
+  }
 
-  let cursorY = h - bottomPad - subEstHeight;
+  // Underline + headline budget
+  const underlineGap = 28;
+  const underlineH = 6;
+  const subGap = post.subheadline ? 28 : 0;
+  const headlineMaxH = usableH - subBlockH - subGap - underlineH - underlineGap;
+
+  const headlineFit = fitFontSize(post.headline, {
+    maxWidth: contentW,
+    maxHeight: headlineMaxH,
+    maxLines: 4,
+    minSize: 56,
+    maxSize: 144,
+    family: fonts.display,
+    weight: 800,
+    uppercase: false,
+    letterSpacing: (s) => -0.02 * s,
+    lineHeight: 1.05,
+  });
+  const headlineH = headlineFit.lines.length * headlineFit.size * 1.05;
+
+  // Anchor block to bottom of usable area
+  const blockBottom = bottomY;
+  const subY = blockBottom - subBlockH;
+  const underlineY = subY - subGap - underlineH;
+  const headlineY = underlineY - underlineGap - headlineH;
+
+  cmds.push(
+    buildHeadlineBlock({
+      text: post.headline,
+      highlightWords: post.highlightWords,
+      x: SAFE_MARGIN,
+      y: headlineY,
+      w: contentW,
+      family: fonts.display,
+      weight: 800,
+      size: headlineFit.size,
+      letterSpacing: -0.02 * headlineFit.size,
+      lineHeight: 1.05,
+      align: "left",
+      uppercase: false,
+    }).cmd,
+  );
+
+  cmds.push({
+    kind: "highlight-bar",
+    x: SAFE_MARGIN,
+    y: underlineY,
+    w: 96,
+    h: underlineH,
+    fill: TOKENS.accent,
+  });
 
   if (post.subheadline) {
     cmds.push({
       kind: "text",
       x: SAFE_MARGIN,
-      y: cursorY,
-      w: w - SAFE_MARGIN * 2,
-      text: post.subheadline,
+      y: subY,
+      w: contentW,
+      text: subLines.join("\n"),
       fontFamily: fonts.body,
       fontSize: subSize,
       fontWeight: 500,
       fill: TOKENS.inkSecondary,
-      lineHeight: subLineHeight,
+      lineHeight: 1.4,
       align: "left",
     });
   }
-
-  cursorY -= headlineEstHeight + 24;
-
-  cmds.push({ kind: "highlight-bar", x: SAFE_MARGIN, y: cursorY - 28, w: 96, h: 6, fill: TOKENS.accent });
-
-  cmds.push({
-    kind: "text",
-    x: SAFE_MARGIN,
-    y: cursorY,
-    w: w - SAFE_MARGIN * 2,
-    text: post.headline,
-    fontFamily: fonts.display,
-    fontSize: headlineSize,
-    fontWeight: 800,
-    fill: TOKENS.inkPrimary,
-    lineHeight: headlineLineHeight,
-    align: "left",
-    letterSpacing: -0.02 * headlineSize,
-  });
 }
 
-function drawStatLayout(cmds: DrawCmd[], post: Post, w: number, h: number, fonts: FontPair) {
+function drawStat(
+  cmds: DrawCmd[],
+  post: Post,
+  w: number,
+  h: number,
+  fonts: FontPair,
+  topY: number,
+) {
+  const contentW = w - SAFE_MARGIN * 2;
+  const bottomY = h - reservedBottom(post) - 32;
+  const usableH = bottomY - topY;
   const stat = post.stat ?? { value: "—", label: post.headline };
 
-  // Vertical budget after top accent + tag chip (~150px) and brand footer.
-  const topReserved = 180;
-  const bottomReserved = BRAND_FOOTER_HEIGHT;
-  const usableH = h - topReserved - bottomReserved;
+  // Headline (bottom)
+  const headlineFit = fitFontSize(post.headline, {
+    maxWidth: contentW,
+    maxHeight: Math.min(180, usableH * 0.28),
+    maxLines: 3,
+    minSize: 36,
+    maxSize: 56,
+    family: fonts.display,
+    weight: 700,
+    uppercase: false,
+    letterSpacing: (s) => -0.01 * s,
+    lineHeight: 1.15,
+  });
+  const headlineH = headlineFit.lines.length * headlineFit.size * 1.15;
 
-  // Sub block needs ~110px, headline block ~140px
-  const subBlockH = post.subheadline ? 100 : 0;
-  const headlineBlockH = 140;
-  const labelBlockH = 70;
-  const dividerGap = 28;
-  const valueRegionH = usableH - subBlockH - headlineBlockH - labelBlockH - dividerGap - 60;
+  // Subheadline (below headline) — small caption
+  let subBlockH = 0;
+  let subSize = 26;
+  let subLines: string[] = [];
+  if (post.subheadline) {
+    const fit = fitFontSize(post.subheadline, {
+      maxWidth: contentW,
+      maxHeight: 100,
+      maxLines: 3,
+      minSize: 20,
+      maxSize: 28,
+      family: fonts.body,
+      weight: 500,
+      uppercase: false,
+      letterSpacing: () => 0,
+      lineHeight: 1.35,
+    });
+    subSize = fit.size;
+    subLines = fit.lines;
+    subBlockH = subLines.length * subSize * 1.35;
+  }
 
-  const valueSize = Math.min(Math.floor(w * 0.32), Math.max(220, valueRegionH));
-  const valueY = topReserved + Math.max(0, Math.floor((valueRegionH - valueSize) / 2));
+  // Stat label (small, between value and headline divider)
+  const labelFit = fitFontSize(stat.label, {
+    maxWidth: contentW,
+    maxHeight: 80,
+    maxLines: 2,
+    minSize: 24,
+    maxSize: 36,
+    family: fonts.body,
+    weight: 600,
+    uppercase: false,
+    letterSpacing: () => 0,
+    lineHeight: 1.3,
+  });
+  const labelH = labelFit.lines.length * labelFit.size * 1.3;
+
+  // Stat value: largest piece, gets remaining space
+  const dividerH = 4;
+  const stack = labelH + 18 + dividerH + 36 + headlineH + (post.subheadline ? 24 + subBlockH : 0);
+  const valueMaxH = usableH - stack;
+  const valueMaxSize = Math.min(Math.floor(w * 0.34), Math.max(180, Math.floor(valueMaxH * 0.95)));
+
+  const valueFit = fitFontSize(stat.value, {
+    maxWidth: contentW,
+    maxHeight: Math.max(160, valueMaxH),
+    maxLines: 1,
+    minSize: 120,
+    maxSize: valueMaxSize,
+    family: fonts.display,
+    weight: 800,
+    uppercase: false,
+    letterSpacing: (s) => -0.04 * s,
+    lineHeight: 1,
+  });
+
+  // Vertical packing — center the stat group in the available space, then
+  // anchor headline+sub to the bottom.
+  const valueY = topY + Math.max(0, Math.floor((valueMaxH - valueFit.size) / 2));
+  const dividerY = valueY + valueFit.size + 24;
+  const labelY = dividerY + 18;
 
   cmds.push({
     kind: "text",
     x: SAFE_MARGIN,
     y: valueY,
-    w: w - SAFE_MARGIN * 2,
+    w: contentW,
     text: stat.value,
     fontFamily: fonts.display,
-    fontSize: valueSize,
+    fontSize: valueFit.size,
     fontWeight: 800,
     fill: TOKENS.accent,
     lineHeight: 1,
     align: "center",
-    letterSpacing: -0.04 * valueSize,
+    letterSpacing: -0.04 * valueFit.size,
   });
-
-  const dividerY = valueY + valueSize + 24;
   cmds.push({
     kind: "highlight-bar",
     x: Math.floor(w / 2 - 48),
     y: dividerY,
     w: 96,
-    h: 4,
+    h: dividerH,
     fill: TOKENS.inkPrimary,
   });
-
-  const labelSize = 36;
-  const labelY = dividerY + 24;
   cmds.push({
     kind: "text",
     x: SAFE_MARGIN,
     y: labelY,
-    w: w - SAFE_MARGIN * 2,
-    text: stat.label,
+    w: contentW,
+    text: labelFit.lines.join("\n"),
     fontFamily: fonts.body,
-    fontSize: labelSize,
+    fontSize: labelFit.size,
     fontWeight: 600,
     fill: TOKENS.inkPrimary,
     lineHeight: 1.3,
     align: "center",
   });
 
-  const headlineSize = 56;
-  const headlineY = h - bottomReserved - 60 - subBlockH - 80;
-  cmds.push({
-    kind: "text",
-    x: SAFE_MARGIN,
-    y: headlineY,
-    w: w - SAFE_MARGIN * 2,
-    text: post.headline,
-    fontFamily: fonts.display,
-    fontSize: headlineSize,
-    fontWeight: 700,
-    fill: TOKENS.inkPrimary,
-    lineHeight: 1.15,
-    align: "center",
-    letterSpacing: -0.01 * headlineSize,
-  });
+  const subBlockTotal = post.subheadline ? subBlockH + 24 : 0;
+  const headlineY = bottomY - subBlockTotal - headlineH;
+  cmds.push(
+    buildHeadlineBlock({
+      text: post.headline,
+      highlightWords: post.highlightWords,
+      x: SAFE_MARGIN,
+      y: headlineY,
+      w: contentW,
+      family: fonts.display,
+      weight: 700,
+      size: headlineFit.size,
+      letterSpacing: -0.01 * headlineFit.size,
+      lineHeight: 1.15,
+      align: "center",
+      uppercase: false,
+    }).cmd,
+  );
   if (post.subheadline) {
     cmds.push({
       kind: "text",
       x: SAFE_MARGIN,
-      y: headlineY + 80,
-      w: w - SAFE_MARGIN * 2,
-      text: post.subheadline,
+      y: bottomY - subBlockH,
+      w: contentW,
+      text: subLines.join("\n"),
       fontFamily: fonts.body,
-      fontSize: 30,
+      fontSize: subSize,
       fontWeight: 500,
       fill: TOKENS.inkSecondary,
       lineHeight: 1.35,
@@ -417,96 +866,169 @@ function drawStatLayout(cmds: DrawCmd[], post: Post, w: number, h: number, fonts
   }
 }
 
-function drawQuoteLayout(cmds: DrawCmd[], post: Post, w: number, h: number, fonts: FontPair) {
+function drawQuote(
+  cmds: DrawCmd[],
+  post: Post,
+  w: number,
+  h: number,
+  fonts: FontPair,
+  topY: number,
+) {
+  const contentW = w - SAFE_MARGIN * 2;
+  const bottomY = h - reservedBottom(post) - 32;
+  const usableH = bottomY - topY;
+
   // Big red opening quote glyph
-  const glyphSize = Math.round(w * 0.22);
+  const glyphSize = 220;
   cmds.push({
     kind: "text",
     x: SAFE_MARGIN,
-    y: Math.floor(h * 0.18),
-    w: glyphSize * 2,
+    y: topY - 20,
+    w: 200,
     text: "\u201C",
     fontFamily: fonts.display,
     fontSize: glyphSize,
-    fontWeight: 900,
+    fontWeight: 800,
     fill: TOKENS.accent,
     lineHeight: 1,
     align: "left",
   });
 
-  // Quote text
-  const quoteSize = computeHeadlineFontSize(post.headline, w - SAFE_MARGIN * 2, 5);
-  const quoteY = Math.floor(h * 0.18) + glyphSize * 0.7;
-  cmds.push({
-    kind: "text",
-    x: SAFE_MARGIN,
-    y: quoteY,
-    w: w - SAFE_MARGIN * 2,
-    text: post.headline,
-    fontFamily: fonts.display,
-    fontSize: quoteSize,
-    fontWeight: 700,
-    fill: TOKENS.inkPrimary,
+  const quoteFit = fitFontSize(post.headline, {
+    maxWidth: contentW,
+    maxHeight: usableH - 200,
+    maxLines: 6,
+    minSize: 36,
+    maxSize: 88,
+    family: fonts.display,
+    weight: 700,
+    uppercase: false,
+    letterSpacing: (s) => -0.01 * s,
     lineHeight: 1.18,
-    align: "left",
-    letterSpacing: -0.01 * quoteSize,
   });
+  const quoteH = quoteFit.lines.length * quoteFit.size * 1.18;
+  const quoteY = topY + 110;
 
-  // Attribution
+  cmds.push(
+    buildHeadlineBlock({
+      text: post.headline,
+      highlightWords: post.highlightWords,
+      x: SAFE_MARGIN,
+      y: quoteY,
+      w: contentW,
+      family: fonts.display,
+      weight: 700,
+      size: quoteFit.size,
+      letterSpacing: -0.01 * quoteFit.size,
+      lineHeight: 1.18,
+      align: "left",
+      uppercase: false,
+    }).cmd,
+  );
+
   if (post.attribution) {
-    const attrY = h - BRAND_FOOTER_HEIGHT - 64;
-    cmds.push({ kind: "highlight-bar", x: SAFE_MARGIN, y: attrY, w: 64, h: 4, fill: TOKENS.accent });
+    const attrY = quoteY + quoteH + 36;
+    cmds.push({
+      kind: "highlight-bar",
+      x: SAFE_MARGIN,
+      y: attrY,
+      w: 64,
+      h: 4,
+      fill: TOKENS.accent,
+    });
     cmds.push({
       kind: "text",
       x: SAFE_MARGIN,
       y: attrY + 18,
-      w: w - SAFE_MARGIN * 2,
+      w: contentW,
       text: post.attribution,
-      fontFamily: fonts.mono,
-      fontSize: 22,
+      fontFamily: fonts.body,
+      fontSize: 24,
       fontWeight: 600,
       fill: TOKENS.inkSecondary,
       lineHeight: 1.3,
       align: "left",
-      letterSpacing: 2,
+      letterSpacing: 1,
       uppercase: true,
     });
   }
 }
 
-function drawMinimalLayout(cmds: DrawCmd[], post: Post, w: number, h: number, fonts: FontPair) {
-  const headlineSize = computeHeadlineFontSize(post.headline, w - SAFE_MARGIN * 4, 4);
-  const lines = estimateLines(post.headline, w - SAFE_MARGIN * 4, headlineSize);
-  const blockHeight = lines * headlineSize * 1.1;
-  const topReserved = 180;
-  const bottomReserved = BRAND_FOOTER_HEIGHT;
-  const usableMid = topReserved + (h - topReserved - bottomReserved) / 2;
-  const startY = Math.floor(usableMid - blockHeight / 2);
+function drawMinimal(
+  cmds: DrawCmd[],
+  post: Post,
+  w: number,
+  h: number,
+  fonts: FontPair,
+  topY: number,
+) {
+  const contentW = w - SAFE_MARGIN * 3;
+  const bottomY = h - reservedBottom(post) - 32;
+  const usableH = bottomY - topY;
 
-  cmds.push({
-    kind: "text",
-    x: SAFE_MARGIN * 2,
-    y: startY,
-    w: w - SAFE_MARGIN * 4,
-    text: post.headline,
-    fontFamily: fonts.display,
-    fontSize: headlineSize,
-    fontWeight: 800,
-    fill: TOKENS.inkPrimary,
+  let subBlockH = 0;
+  let subSize = 28;
+  let subLines: string[] = [];
+  if (post.subheadline) {
+    const fit = fitFontSize(post.subheadline, {
+      maxWidth: contentW,
+      maxHeight: 180,
+      maxLines: 4,
+      minSize: 22,
+      maxSize: 32,
+      family: fonts.body,
+      weight: 500,
+      uppercase: false,
+      letterSpacing: () => 0,
+      lineHeight: 1.4,
+    });
+    subSize = fit.size;
+    subLines = fit.lines;
+    subBlockH = subLines.length * subSize * 1.4;
+  }
+
+  const headlineFit = fitFontSize(post.headline, {
+    maxWidth: contentW,
+    maxHeight: usableH - subBlockH - 32,
+    maxLines: 5,
+    minSize: 48,
+    maxSize: 120,
+    family: fonts.display,
+    weight: 800,
+    uppercase: false,
+    letterSpacing: (s) => -0.02 * s,
     lineHeight: 1.1,
-    align: "center",
-    letterSpacing: -0.02 * headlineSize,
   });
+  const headlineH = headlineFit.lines.length * headlineFit.size * 1.1;
 
+  const totalH = headlineH + (post.subheadline ? 32 + subBlockH : 0);
+  const startY = topY + Math.max(0, Math.floor((usableH - totalH) / 2));
+
+  cmds.push(
+    buildHeadlineBlock({
+      text: post.headline,
+      highlightWords: post.highlightWords,
+      x: Math.floor(SAFE_MARGIN * 1.5),
+      y: startY,
+      w: contentW,
+      family: fonts.display,
+      weight: 800,
+      size: headlineFit.size,
+      letterSpacing: -0.02 * headlineFit.size,
+      lineHeight: 1.1,
+      align: "center",
+      uppercase: false,
+    }).cmd,
+  );
   if (post.subheadline) {
     cmds.push({
       kind: "text",
-      x: SAFE_MARGIN * 2,
-      y: startY + blockHeight + 32,
-      w: w - SAFE_MARGIN * 4,
-      text: post.subheadline,
+      x: Math.floor(SAFE_MARGIN * 1.5),
+      y: startY + headlineH + 32,
+      w: contentW,
+      text: subLines.join("\n"),
       fontFamily: fonts.body,
-      fontSize: Math.round(headlineSize * 0.34),
+      fontSize: subSize,
       fontWeight: 500,
       fill: TOKENS.inkSecondary,
       lineHeight: 1.4,
@@ -515,44 +1037,79 @@ function drawMinimalLayout(cmds: DrawCmd[], post: Post, w: number, h: number, fo
   }
 }
 
-function drawCenteredLayout(cmds: DrawCmd[], post: Post, w: number, h: number, fonts: FontPair) {
-  // Brand-aligned layout: centered title with white-line + red-tick separator
-  // (mirrors the BHU-RAJNAITIK / OBSERVER lockup) and an optional subhead.
-  const topReserved = 180;
-  const bottomReserved = BRAND_FOOTER_HEIGHT;
-  const midY = topReserved + (h - topReserved - bottomReserved) / 2;
+function drawCentered(
+  cmds: DrawCmd[],
+  post: Post,
+  w: number,
+  h: number,
+  fonts: FontPair,
+  topY: number,
+) {
+  const contentW = w - SAFE_MARGIN * 2;
+  const bottomY = h - reservedBottom(post) - 32;
+  const usableH = bottomY - topY;
 
-  const headlineSize = computeHeadlineFontSize(post.headline, w - SAFE_MARGIN * 3, 4);
-  const headlineLines = estimateLines(post.headline, w - SAFE_MARGIN * 3, headlineSize);
-  const headlineBlockH = headlineLines * headlineSize * 1.08;
-
-  const subSize = Math.round(headlineSize * 0.32);
-  const subBlockH = post.subheadline
-    ? estimateLines(post.subheadline, w - SAFE_MARGIN * 3, subSize) * subSize * 1.4
-    : 0;
+  let subBlockH = 0;
+  let subSize = 28;
+  let subLines: string[] = [];
+  if (post.subheadline) {
+    const fit = fitFontSize(post.subheadline, {
+      maxWidth: contentW,
+      maxHeight: 180,
+      maxLines: 4,
+      minSize: 22,
+      maxSize: 32,
+      family: fonts.body,
+      weight: 500,
+      uppercase: false,
+      letterSpacing: () => 0,
+      lineHeight: 1.4,
+    });
+    subSize = fit.size;
+    subLines = fit.lines;
+    subBlockH = subLines.length * subSize * 1.4;
+  }
 
   const sepGap = 28;
   const sepH = 2;
-  const totalH = headlineBlockH + (post.subheadline ? sepGap * 2 + sepH + subBlockH : 0);
-  const blockTop = Math.floor(midY - totalH / 2);
+  const headlineMaxH = usableH - subBlockH - (post.subheadline ? sepGap * 2 + sepH : 0);
 
-  cmds.push({
-    kind: "text",
-    x: SAFE_MARGIN,
-    y: blockTop,
-    w: w - SAFE_MARGIN * 2,
-    text: post.headline,
-    fontFamily: fonts.display,
-    fontSize: headlineSize,
-    fontWeight: 800,
-    fill: TOKENS.inkPrimary,
+  const headlineFit = fitFontSize(post.headline, {
+    maxWidth: contentW,
+    maxHeight: headlineMaxH,
+    maxLines: 5,
+    minSize: 56,
+    maxSize: 132,
+    family: fonts.display,
+    weight: 800,
+    uppercase: false,
+    letterSpacing: (s) => -0.02 * s,
     lineHeight: 1.08,
-    align: "center",
-    letterSpacing: -0.02 * headlineSize,
   });
+  const headlineH = headlineFit.lines.length * headlineFit.size * 1.08;
+
+  const totalH = headlineH + (post.subheadline ? sepGap * 2 + sepH + subBlockH : 0);
+  const blockTop = topY + Math.max(0, Math.floor((usableH - totalH) / 2));
+
+  cmds.push(
+    buildHeadlineBlock({
+      text: post.headline,
+      highlightWords: post.highlightWords,
+      x: SAFE_MARGIN,
+      y: blockTop,
+      w: contentW,
+      family: fonts.display,
+      weight: 800,
+      size: headlineFit.size,
+      letterSpacing: -0.02 * headlineFit.size,
+      lineHeight: 1.08,
+      align: "center",
+      uppercase: false,
+    }).cmd,
+  );
 
   if (post.subheadline) {
-    const sepY = blockTop + headlineBlockH + sepGap;
+    const sepY = blockTop + headlineH + sepGap;
     const sepW = Math.round(w * 0.22);
     const tickW = Math.round(sepW * 0.25);
     const cx = Math.floor(w / 2);
@@ -576,8 +1133,8 @@ function drawCenteredLayout(cmds: DrawCmd[], post: Post, w: number, h: number, f
       kind: "text",
       x: SAFE_MARGIN,
       y: sepY + sepGap,
-      w: w - SAFE_MARGIN * 2,
-      text: post.subheadline,
+      w: contentW,
+      text: subLines.join("\n"),
       fontFamily: fonts.body,
       fontSize: subSize,
       fontWeight: 500,
@@ -586,25 +1143,4 @@ function drawCenteredLayout(cmds: DrawCmd[], post: Post, w: number, h: number, f
       align: "center",
     });
   }
-}
-
-// ─────────────────────────────────────────────────────────────────────
-// Heuristics (pure)
-// ─────────────────────────────────────────────────────────────────────
-
-function computeHeadlineFontSize(text: string, contentWidth: number, maxLines: number): number {
-  const charsPerLine = (size: number) => Math.floor(contentWidth / (size * 0.55));
-  const candidates = [140, 120, 104, 92, 80, 72, 64, 56, 48];
-  for (const size of candidates) {
-    const cpl = charsPerLine(size);
-    if (cpl <= 0) continue;
-    const lines = Math.ceil(text.length / cpl);
-    if (lines <= maxLines) return size;
-  }
-  return 48;
-}
-
-function estimateLines(text: string, contentWidth: number, fontSize: number): number {
-  const cpl = Math.max(1, Math.floor(contentWidth / (fontSize * 0.5)));
-  return Math.max(1, Math.ceil(text.length / cpl));
 }
