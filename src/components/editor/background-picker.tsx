@@ -3,6 +3,8 @@
 import { useState } from "react";
 import type { Background } from "@/lib/post-schema";
 import { PRESET_BACKGROUNDS } from "@/lib/post-schema";
+import { uploadImage, generateBackground } from "@/lib/api-client";
+import { isStaticBuild, basePath } from "@/lib/byok-store";
 
 interface Props {
   value: Background;
@@ -22,17 +24,10 @@ export function BackgroundPicker({ value, onChange }: Props) {
     setError(null);
     setUploading(true);
     try {
-      const fd = new FormData();
-      fd.append("file", file);
-      const res = await fetch("/api/upload", { method: "POST", body: fd });
-      const data = (await res.json()) as { url?: string; error?: string };
-      if (!res.ok || !data.url) {
-        setError(data.error ?? "Upload failed");
-        return;
-      }
-      onChange({ kind: "upload", src: data.url });
-    } catch {
-      setError("Network error");
+      const url = await uploadImage(file);
+      onChange({ kind: "upload", src: url });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Upload failed");
     } finally {
       setUploading(false);
       e.target.value = "";
@@ -47,20 +42,11 @@ export function BackgroundPicker({ value, onChange }: Props) {
     setAiBusy(true);
     setAiNote(null);
     try {
-      const res = await fetch("/api/ai/background", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: aiPrompt }),
-      });
-      const data = (await res.json()) as { url?: string; source?: string; error?: string };
-      if (!res.ok || !data.url) {
-        setAiNote(data.error ?? "Generation failed");
-        return;
-      }
-      onChange({ kind: "upload", src: data.url });
-      setAiNote(data.source === "stub" ? "Stub mode (set OPENAI_API_KEY for real generation)" : "Generated.");
-    } catch {
-      setAiNote("Network error.");
+      const url = await generateBackground(aiPrompt);
+      onChange({ kind: "upload", src: url });
+      setAiNote(isStaticBuild() ? "Generated via Gemini." : "Generated.");
+    } catch (err) {
+      setAiNote(err instanceof Error ? err.message : "Generation failed");
     } finally {
       setAiBusy(false);
     }
@@ -87,7 +73,7 @@ export function BackgroundPicker({ value, onChange }: Props) {
               }`}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={`/backgrounds/${p.slug}.svg`} alt={p.name} className="h-full w-full object-cover" />
+              <img src={`${basePath()}/backgrounds/${p.slug}.svg`} alt={p.name} className="h-full w-full object-cover" />
               <span className="absolute bottom-0 left-0 right-0 bg-black/60 px-2 py-1 text-left text-[10px] uppercase tracking-wider text-[var(--color-ink-primary)]">
                 {p.name}
               </span>

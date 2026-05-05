@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { Post } from "@/lib/post-schema";
 import { Controls } from "@/components/editor/controls";
+import { exportPng } from "@/lib/api-client";
+import { loadDraftPost, saveDraftPost, isStaticBuild } from "@/lib/byok-store";
 
 const CanvasPreview = dynamic(
   () => import("@/components/editor/canvas-preview").then((m) => m.CanvasPreview),
@@ -26,7 +28,10 @@ const INITIAL_POST: Post = {
 };
 
 export default function EditorPage() {
-  const [post, setPost] = useState<Post>(INITIAL_POST);
+  const [post, setPost] = useState<Post>(() => {
+    if (typeof window === "undefined") return INITIAL_POST;
+    return loadDraftPost<Post>() ?? INITIAL_POST;
+  });
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [previewWidth, setPreviewWidth] = useState(560);
@@ -41,21 +46,18 @@ export default function EditorPage() {
     return () => window.removeEventListener("resize", update);
   }, []);
 
+  // Persist draft to localStorage in static build (debounced).
+  useEffect(() => {
+    if (!isStaticBuild()) return;
+    const t = setTimeout(() => saveDraftPost(post), 400);
+    return () => clearTimeout(t);
+  }, [post]);
+
   async function handleExport() {
     setExporting(true);
     setExportError(null);
     try {
-      const res = await fetch("/api/render", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(post),
-      });
-      if (!res.ok) {
-        const data = (await res.json().catch(() => ({}))) as { error?: string };
-        setExportError(data.error ?? `Render failed (${res.status})`);
-        return;
-      }
-      const blob = await res.blob();
+      const blob = await exportPng(post);
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -64,8 +66,8 @@ export default function EditorPage() {
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
-    } catch {
-      setExportError("Network error.");
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : "Export failed");
     } finally {
       setExporting(false);
     }

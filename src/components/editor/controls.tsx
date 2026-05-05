@@ -9,6 +9,7 @@ import {
   FONT_STYLE_OPTIONS,
 } from "@/lib/post-schema";
 import { BackgroundPicker } from "./background-picker";
+import { rewriteHeadline as rewriteHeadlineApi } from "@/lib/api-client";
 
 interface Props {
   post: Post;
@@ -29,19 +30,10 @@ export function Controls({ post, onChange, onExport, exporting }: Props) {
     setAiBusy(true);
     setAiError(null);
     try {
-      const res = await fetch("/api/ai/rewrite", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: post.headline, kind: "headline" }),
-      });
-      const data = (await res.json()) as { rewritten?: string; error?: string };
-      if (!res.ok || !data.rewritten) {
-        setAiError(data.error ?? "AI rewrite failed.");
-        return;
-      }
-      onChange({ ...post, headline: data.rewritten });
-    } catch {
-      setAiError("Network error.");
+      const rewritten = await rewriteHeadlineApi(post.headline);
+      onChange({ ...post, headline: rewritten });
+    } catch (err) {
+      setAiError(err instanceof Error ? err.message : "AI rewrite failed.");
     } finally {
       setAiBusy(false);
     }

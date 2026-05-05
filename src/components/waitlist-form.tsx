@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { joinWaitlist } from "@/lib/api-client";
+import { isStaticBuild } from "@/lib/byok-store";
 
 type Status = "idle" | "submitting" | "success" | "error";
 
@@ -15,26 +17,17 @@ export function WaitlistForm() {
     setMessage(null);
 
     try {
-      const res = await fetch("/api/waitlist", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
-      });
-
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-
-      if (!res.ok) {
-        setStatus("error");
-        setMessage(data.error ?? "Something went wrong. Try again.");
-        return;
-      }
-
+      await joinWaitlist(email);
       setStatus("success");
-      setMessage("You're on the list. We'll be in touch.");
+      setMessage(
+        isStaticBuild()
+          ? "Saved locally — this is the demo build. Visit the full site to join the official waitlist."
+          : "You're on the list. We'll be in touch.",
+      );
       setEmail("");
-    } catch {
+    } catch (err) {
       setStatus("error");
-      setMessage("Network error. Try again.");
+      setMessage(err instanceof Error ? err.message : "Network error. Try again.");
     }
   }
 

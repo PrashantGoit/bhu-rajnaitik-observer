@@ -5,6 +5,7 @@ import { Stage, Layer, Rect, Text as KonvaText, Image as KonvaImage, Group } fro
 import useImage from "use-image";
 import type { Post } from "@/lib/post-schema";
 import { computeLayout, type DrawCmd } from "@/lib/render";
+import { basePath } from "@/lib/byok-store";
 
 interface Props {
   post: Post;
@@ -72,7 +73,10 @@ function Cmd({ cmd }: { cmd: DrawCmd }) {
 }
 
 function ImageCmd({ cmd }: { cmd: Extract<DrawCmd, { kind: "image" }> }) {
-  const [img] = useImage(cmd.src, "anonymous");
+  const src = cmd.src.startsWith("/") && !cmd.src.startsWith("//")
+    ? `${basePath()}${cmd.src}`
+    : cmd.src;
+  const [img] = useImage(src, "anonymous");
   if (!img) return null;
   return (
     <KonvaImage

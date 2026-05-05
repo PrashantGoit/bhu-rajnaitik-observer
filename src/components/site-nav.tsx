@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ByokPanel } from "./byok-panel";
 
 export function SiteNav() {
   return (
@@ -25,6 +26,7 @@ export function SiteNav() {
           >
             Home
           </Link>
+          <ByokPanel />
           <Link
             href="/editor"
             className="rounded-md border border-[var(--color-accent)] bg-[var(--color-accent)] px-3 py-1.5 font-mono text-[11px] font-semibold uppercase tracking-[0.25em] text-white transition hover:bg-[var(--color-highlight)]"
