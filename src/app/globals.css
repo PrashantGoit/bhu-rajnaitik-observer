@@ -1,0 +1,31 @@
+@import "tailwindcss";
+
+/* BHU-RAJNAITIK OBSERVER — locked design tokens.
+   Hex values are immutable; see AGENTS.md "Design tokens". */
+@theme {
+  --color-bg-base: #0B0F14;
+  --color-map-land: #1A2330;
+  --color-map-border: #2A3645;
+  --color-ink-primary: #F5F7FA;
+  --color-ink-secondary: #9AA4B2;
+  --color-accent: #E10600;
+  --color-highlight: #FF2D2D;
+
+  --font-display: var(--font-inter-tight);
+  --font-sans: var(--font-inter);
+  --font-mono: var(--font-jetbrains-mono);
+}
+
+html, body {
+  background: var(--color-bg-base);
+  color: var(--color-ink-primary);
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Subtle dotted grid evoking the map aesthetic */
+.bg-grid {
+  background-image:
+    radial-gradient(circle at 1px 1px, rgba(154, 164, 178, 0.08) 1px, transparent 0);
+  background-size: 24px 24px;
+}
