@@ -55,3 +55,5 @@ test-output.png
 out_samples/
 .next/
 out/
+run-logs/
+run-logs.zip
