@@ -42,3 +42,13 @@ next-env.d.ts
 
 # local data (MVP waitlist store)
 /.data/
+
+# user uploads (local-only until Supabase Storage is wired)
+/public/uploads/
+
+# playwright
+/test-results/
+/playwright-report/
+/playwright/.cache/
+test-output.png
+

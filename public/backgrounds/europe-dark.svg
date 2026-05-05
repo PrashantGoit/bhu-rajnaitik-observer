@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 1080" width="1080" height="1080">
+  <defs>
+    <radialGradient id="g" cx="50%" cy="50%" r="70%">
+      <stop offset="0%" stop-color="#1A2330"/>
+      <stop offset="100%" stop-color="#0B0F14"/>
+    </radialGradient>
+    <pattern id="dots" x="0" y="0" width="14" height="14" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="1.1" fill="#2A3645"/>
+    </pattern>
+  </defs>
+  <rect width="1080" height="1080" fill="url(#g)"/>
+  <rect width="1080" height="1080" fill="url(#dots)" opacity="0.55"/>
+  <g fill="#1A2330" stroke="#2A3645" stroke-width="1.5" opacity="0.95">
+    <path d="M240 280 q160 -50 360 -20 q200 30 240 130 q40 100 -40 200 q-100 120 -300 130 q-220 10 -340 -60 q-110 -70 -120 -180 q-10 -110 60 -160 q60 -40 140 -40 z"/>
+  </g>
+</svg>

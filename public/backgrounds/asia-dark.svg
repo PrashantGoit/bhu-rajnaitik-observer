@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 1080" width="1080" height="1080">
+  <defs>
+    <radialGradient id="g" cx="55%" cy="45%" r="70%">
+      <stop offset="0%" stop-color="#1A2330"/>
+      <stop offset="100%" stop-color="#0B0F14"/>
+    </radialGradient>
+    <pattern id="dots" x="0" y="0" width="14" height="14" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="1.1" fill="#2A3645"/>
+    </pattern>
+  </defs>
+  <rect width="1080" height="1080" fill="url(#g)"/>
+  <rect width="1080" height="1080" fill="url(#dots)" opacity="0.55"/>
+  <g fill="#1A2330" stroke="#2A3645" stroke-width="1.5" opacity="0.95">
+    <!-- Asia mass -->
+    <path d="M180 220 q200 -60 420 -20 q220 40 280 180 q40 100 -20 200 q-80 130 -260 160 q-200 30 -360 -40 q-160 -70 -200 -200 q-40 -130 30 -220 q40 -50 110 -60 z"/>
+    <!-- India peninsula bias -->
+    <path d="M420 600 q40 -10 80 0 q40 10 50 80 q10 80 -30 120 q-30 30 -60 10 q-50 -30 -60 -130 q-5 -50 20 -80 z" fill="#1F2A3A"/>
+  </g>
+</svg>
