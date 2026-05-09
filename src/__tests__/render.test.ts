@@ -26,6 +26,8 @@ const basePost: Post = {
   fontScale: "md",
   headlineFont: "Inter Tight",
   headlineSize: 0,
+  subheadlineSize: 0,
+  subHighlightWords: [],
 };
 
 describe("/api/render", () => {
@@ -266,5 +268,63 @@ describe("headline font + numeric size (computeLayout)", () => {
       const res = await POST(makeRequest({ ...basePost, headlineFont: fam }));
       expect(res.status).toBe(200);
     }
+  });
+});
+
+describe("extended sub-headline (computeLayout)", () => {
+  it("renders a long sub-headline (500 chars) without error", async () => {
+    const longSub =
+      "Tehran's deterrence calculus has shifted dramatically as Iran launched one of its largest-ever " +
+      "ballistic missile salvos targeting the Negev air base in Israel. The attack follows weeks of " +
+      "escalating rhetoric and marks a significant departure from proxy warfare toward direct " +
+      "confrontation. Israeli air-defence systems intercepted the majority of incoming projectiles " +
+      "but multiple impacts were confirmed near the base perimeter.";
+    const res = await POST(makeRequest({ ...basePost, subheadline: longSub }));
+    expect(res.status).toBe(200);
+  });
+
+  it("subheadlineSize pin produces a larger font than auto", async () => {
+    const { computeLayout } = await import("@/lib/render");
+    type Cmd = {
+      kind: string;
+      lines?: Array<{ fontSize?: number; size?: number }>;
+    };
+    function firstSubLine(cmds: Cmd[]) {
+      const blocks = cmds.filter((c) => c.kind === "text-block");
+      // sub-headline block is always after the headline block
+      const sub = blocks[1];
+      return sub?.lines?.[0];
+    }
+    const sub = "Tehran's deterrence calculus shifts.";
+    const auto = computeLayout({ ...basePost, subheadline: sub }, false);
+    const pinned = computeLayout({ ...basePost, subheadline: sub, subheadlineSize: 60 }, false);
+    const autoSz =
+      (firstSubLine(auto.commands as Cmd[])?.fontSize ?? firstSubLine(auto.commands as Cmd[])?.size) ?? 0;
+    const pinnedSz =
+      (firstSubLine(pinned.commands as Cmd[])?.fontSize ?? firstSubLine(pinned.commands as Cmd[])?.size) ?? 0;
+    expect(pinnedSz).toBeGreaterThan(autoSz);
+  });
+
+  it("sub-headline highlight words are present in the text-block segments", async () => {
+    const { computeLayout } = await import("@/lib/render");
+    type Segment = { text: string; fill: string };
+    type Cmd = {
+      kind: string;
+      lines?: Array<{ segments?: Segment[] }>;
+    };
+    const layout = computeLayout(
+      {
+        ...basePost,
+        subheadline: "Iran strikes Israel in major escalation",
+        subHighlightWords: ["Iran", "Israel"],
+      },
+      false,
+    );
+    const blocks = (layout.commands as Cmd[]).filter((c) => c.kind === "text-block");
+    // The sub-headline is the second text-block (after headline)
+    const subBlock = blocks[1];
+    const segs = subBlock?.lines?.flatMap((l) => l.segments ?? []) ?? [];
+    const highlighted = segs.filter((s) => s.fill !== "#F5F7FA" && s.fill !== "#9AA4B2");
+    expect(highlighted.length).toBeGreaterThan(0);
   });
 });

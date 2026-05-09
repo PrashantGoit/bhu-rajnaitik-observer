@@ -740,6 +740,57 @@ function buildHeadlineBlock(opts: {
   };
 }
 
+// Build a sub-headline text-block cmd from pre-fitted lines with optional
+// highlight words. Reused across all 4 layouts.
+function buildSubTextBlock(opts: {
+  lines: string[];
+  highlightWords: string[];
+  x: number;
+  y: number;
+  w: number;
+  family: string;
+  weight: number;
+  size: number;
+  lineHeight: number;
+  align: Align;
+}): DrawCmd {
+  return {
+    kind: "text-block",
+    x: opts.x,
+    y: opts.y,
+    w: opts.w,
+    lineHeight: opts.lineHeight,
+    lines: opts.lines.map((line) => ({
+      segments: buildHighlightedSegments(
+        line,
+        opts.highlightWords,
+        TOKENS.inkSecondary,
+        TOKENS.accent,
+        false,
+      ),
+      align: opts.align,
+      fontFamily: opts.family,
+      fontSize: opts.size,
+      fontWeight: opts.weight,
+      letterSpacing: 0,
+      uppercase: false,
+    })),
+  };
+}
+
+// Return {min, max} size range for sub-headline, honoring explicit override.
+function subSizeRange(
+  subheadlineSize: number,
+  defaultMin: number,
+  defaultMax: number,
+): { min: number; max: number } {
+  if (subheadlineSize > 0) {
+    const t = Math.max(8, Math.min(120, subheadlineSize));
+    return { min: Math.min(defaultMin, t), max: t };
+  }
+  return { min: defaultMin, max: defaultMax };
+}
+
 // ---------------------------------------------------------------------------
 // Layouts
 // ---------------------------------------------------------------------------
@@ -764,12 +815,13 @@ function drawBreaking(
   let subLines: string[] = [];
   let subSize = 30;
   if (post.subheadline) {
+    const sr = subSizeRange(post.subheadlineSize, 20, 32);
     const fit = fitFontSize(post.subheadline, {
       maxWidth: contentW,
-      maxHeight: Math.min(220, usableH * 0.35),
-      maxLines: 4,
-      minSize: 22,
-      maxSize: 32,
+      maxHeight: Math.min(420, usableH * 0.55),
+      maxLines: 10,
+      minSize: sr.min,
+      maxSize: sr.max,
       family: fonts.body,
       weight: 500,
       uppercase: false,
@@ -791,7 +843,7 @@ function drawBreaking(
   const headlineFit = fitFontSize(post.headline, {
     maxWidth: contentW,
     maxHeight: headlineMaxH,
-    maxLines: 4,
+    maxLines: 6,
     minSize: hRange.minSize,
     maxSize: hRange.maxSize,
     family: fonts.display,
@@ -835,19 +887,20 @@ function drawBreaking(
   });
 
   if (post.subheadline) {
-    cmds.push({
-      kind: "text",
-      x: SAFE_MARGIN,
-      y: subY,
-      w: contentW,
-      text: subLines.join("\n"),
-      fontFamily: fonts.body,
-      fontSize: subSize,
-      fontWeight: 500,
-      fill: TOKENS.inkSecondary,
-      lineHeight: 1.4,
-      align: "left",
-    });
+    cmds.push(
+      buildSubTextBlock({
+        lines: subLines,
+        highlightWords: post.subHighlightWords,
+        x: SAFE_MARGIN,
+        y: subY,
+        w: contentW,
+        family: fonts.body,
+        weight: 500,
+        size: subSize,
+        lineHeight: 1.4,
+        align: "left",
+      }),
+    );
   }
 }
 
@@ -884,12 +937,13 @@ function drawStat(
   let subSize = 26;
   let subLines: string[] = [];
   if (post.subheadline) {
+    const sr = subSizeRange(post.subheadlineSize, 18, 28);
     const fit = fitFontSize(post.subheadline, {
       maxWidth: contentW,
-      maxHeight: 100,
-      maxLines: 3,
-      minSize: 20,
-      maxSize: 28,
+      maxHeight: Math.min(320, usableH * 0.45),
+      maxLines: 8,
+      minSize: sr.min,
+      maxSize: sr.max,
       family: fonts.body,
       weight: 500,
       uppercase: false,
@@ -997,19 +1051,20 @@ function drawStat(
     }).cmd,
   );
   if (post.subheadline) {
-    cmds.push({
-      kind: "text",
-      x: SAFE_MARGIN,
-      y: bottomY - subBlockH,
-      w: contentW,
-      text: subLines.join("\n"),
-      fontFamily: fonts.body,
-      fontSize: subSize,
-      fontWeight: 500,
-      fill: TOKENS.inkSecondary,
-      lineHeight: 1.35,
-      align: "center",
-    });
+    cmds.push(
+      buildSubTextBlock({
+        lines: subLines,
+        highlightWords: post.subHighlightWords,
+        x: SAFE_MARGIN,
+        y: bottomY - subBlockH,
+        w: contentW,
+        family: fonts.body,
+        weight: 500,
+        size: subSize,
+        lineHeight: 1.35,
+        align: "center",
+      }),
+    );
   }
 }
 
@@ -1118,12 +1173,13 @@ function drawMinimal(
   let subSize = 28;
   let subLines: string[] = [];
   if (post.subheadline) {
+    const sr = subSizeRange(post.subheadlineSize, 20, 32);
     const fit = fitFontSize(post.subheadline, {
       maxWidth: contentW,
-      maxHeight: 180,
-      maxLines: 4,
-      minSize: 22,
-      maxSize: 32,
+      maxHeight: Math.min(400, usableH * 0.55),
+      maxLines: 10,
+      minSize: sr.min,
+      maxSize: sr.max,
       family: fonts.body,
       weight: 500,
       uppercase: false,
@@ -1139,7 +1195,7 @@ function drawMinimal(
   const headlineFit = fitFontSize(post.headline, {
     maxWidth: contentW,
     maxHeight: usableH - subBlockH - 32,
-    maxLines: 5,
+    maxLines: 7,
     minSize: mRange.minSize,
     maxSize: mRange.maxSize,
     family: fonts.display,
@@ -1170,19 +1226,20 @@ function drawMinimal(
     }).cmd,
   );
   if (post.subheadline) {
-    cmds.push({
-      kind: "text",
-      x: Math.floor(SAFE_MARGIN * 1.5),
-      y: startY + headlineH + 32,
-      w: contentW,
-      text: subLines.join("\n"),
-      fontFamily: fonts.body,
-      fontSize: subSize,
-      fontWeight: 500,
-      fill: TOKENS.inkSecondary,
-      lineHeight: 1.4,
-      align: "center",
-    });
+    cmds.push(
+      buildSubTextBlock({
+        lines: subLines,
+        highlightWords: post.subHighlightWords,
+        x: Math.floor(SAFE_MARGIN * 1.5),
+        y: startY + headlineH + 32,
+        w: contentW,
+        family: fonts.body,
+        weight: 500,
+        size: subSize,
+        lineHeight: 1.4,
+        align: "center",
+      }),
+    );
   }
 }
 
@@ -1202,12 +1259,13 @@ function drawCentered(
   let subSize = 28;
   let subLines: string[] = [];
   if (post.subheadline) {
+    const sr = subSizeRange(post.subheadlineSize, 20, 32);
     const fit = fitFontSize(post.subheadline, {
       maxWidth: contentW,
-      maxHeight: 180,
-      maxLines: 4,
-      minSize: 22,
-      maxSize: 32,
+      maxHeight: Math.min(400, usableH * 0.55),
+      maxLines: 10,
+      minSize: sr.min,
+      maxSize: sr.max,
       family: fonts.body,
       weight: 500,
       uppercase: false,
@@ -1279,18 +1337,19 @@ function drawCentered(
       h: sepH,
       fill: TOKENS.accent,
     });
-    cmds.push({
-      kind: "text",
-      x: SAFE_MARGIN,
-      y: sepY + sepGap,
-      w: contentW,
-      text: subLines.join("\n"),
-      fontFamily: fonts.body,
-      fontSize: subSize,
-      fontWeight: 500,
-      fill: TOKENS.inkSecondary,
-      lineHeight: 1.4,
-      align: "center",
-    });
+    cmds.push(
+      buildSubTextBlock({
+        lines: subLines,
+        highlightWords: post.subHighlightWords,
+        x: SAFE_MARGIN,
+        y: sepY + sepGap,
+        w: contentW,
+        family: fonts.body,
+        weight: 500,
+        size: subSize,
+        lineHeight: 1.4,
+        align: "center",
+      }),
+    );
   }
 }

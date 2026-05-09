@@ -143,8 +143,8 @@ export function Controls({ post, onChange, onExport, exporting }: Props) {
 
       <Field label="Headline" required>
         <textarea
-          rows={3}
-          maxLength={120}
+          rows={4}
+          maxLength={280}
           value={post.headline}
           onChange={(e) => onChange({ ...post, headline: e.target.value })}
           placeholder="Iran strikes Israeli air base"
@@ -152,7 +152,7 @@ export function Controls({ post, onChange, onExport, exporting }: Props) {
         />
         <div className="mt-2 flex items-center justify-between">
           <span className="font-mono text-[10px] uppercase tracking-wider text-[var(--color-ink-secondary)]">
-            {post.headline.length}/120
+            {post.headline.length}/280
           </span>
           <button
             type="button"
@@ -168,15 +168,35 @@ export function Controls({ post, onChange, onExport, exporting }: Props) {
 
       <Field label="Sub-headline">
         <textarea
-          rows={2}
-          maxLength={200}
+          rows={4}
+          maxLength={600}
           value={post.subheadline}
           onChange={(e) => onChange({ ...post, subheadline: e.target.value })}
           placeholder="Tehran's deterrence calculus shifts as ballistic missile salvos target Negev base."
           className={inputCls}
         />
         <span className="mt-1 block font-mono text-[10px] uppercase tracking-wider text-[var(--color-ink-secondary)]">
-          {post.subheadline.length}/200
+          {post.subheadline.length}/600
+        </span>
+      </Field>
+
+      <Field label="Sub-headline size (px)">
+        <FontSizePicker
+          value={post.subheadlineSize}
+          onChange={(n) => onChange({ ...post, subheadlineSize: n })}
+          maxPx={120}
+          defaultAuto={28}
+          listId="bro-sub-font-sizes"
+        />
+      </Field>
+
+      <Field label="Sub-headline highlight words (red)">
+        <HighlightTagInput
+          value={post.subHighlightWords}
+          onChange={(words) => onChange({ ...post, subHighlightWords: words })}
+        />
+        <span className="mt-1 block font-mono text-[10px] uppercase tracking-wider text-[var(--color-ink-secondary)]">
+          Press Enter or comma to add. Backspace to remove. Up to 12.
         </span>
       </Field>
 
@@ -191,7 +211,7 @@ export function Controls({ post, onChange, onExport, exporting }: Props) {
         />
       </Field>
 
-      <Field label="Highlight words (red)">
+      <Field label="Headline highlight words (red)">
         <HighlightTagInput
           value={post.highlightWords}
           onChange={(words) => onChange({ ...post, highlightWords: words })}
@@ -402,13 +422,16 @@ function FontFamilyPicker({
 function FontSizePicker({
   value,
   onChange,
+  maxPx = 280,
+  defaultAuto = 96,
+  listId = "bro-font-sizes",
 }: {
   value: number;
   onChange: (next: number) => void;
+  maxPx?: number;
+  defaultAuto?: number;
+  listId?: string;
 }) {
-  // Local draft text so users can clear/edit freely; commit on blur or Enter.
-  // Resetting to a different `value` from outside is rare (preset change),
-  // so we key the input on `value` to force a remount on external resets.
   const [draft, setDraft] = useState<string>(value > 0 ? String(value) : "");
 
   function commit(raw: string) {
@@ -424,14 +447,14 @@ function FontSizePicker({
       setDraft("");
       return;
     }
-    const clamped = Math.max(8, Math.min(280, n));
+    const clamped = Math.max(8, Math.min(maxPx, n));
     onChange(clamped);
     setDraft(String(clamped));
   }
 
   function bump(delta: number) {
-    const current = value > 0 ? value : 96;
-    const next = Math.max(8, Math.min(280, current + delta));
+    const current = value > 0 ? value : defaultAuto;
+    const next = Math.max(8, Math.min(maxPx, current + delta));
     onChange(next);
     setDraft(String(next));
   }
@@ -442,7 +465,7 @@ function FontSizePicker({
         <input
           type="text"
           inputMode="numeric"
-          list="bro-font-sizes"
+          list={listId}
           value={draft}
           placeholder="Auto"
           onChange={(e) => setDraft(e.target.value)}
@@ -461,7 +484,7 @@ function FontSizePicker({
           }}
           className="w-full rounded-md border border-[var(--color-map-border)] bg-[var(--color-map-land)]/40 px-3 py-2 text-sm text-[var(--color-ink-primary)] focus:border-[var(--color-accent)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]/30"
         />
-        <datalist id="bro-font-sizes">
+        <datalist id={listId}>
           {FONT_SIZE_PRESETS.map((s) => (
             <option key={s} value={s} />
           ))}

@@ -28,6 +28,8 @@ const INITIAL_POST: Post = {
   fontScale: "md",
   headlineFont: "Inter Tight",
   headlineSize: 0,
+  subheadlineSize: 0,
+  subHighlightWords: [],
 };
 
 export default function EditorPage() {
