@@ -818,8 +818,8 @@ function drawBreaking(
     const sr = subSizeRange(post.subheadlineSize, 20, 32);
     const fit = fitFontSize(post.subheadline, {
       maxWidth: contentW,
-      maxHeight: Math.min(420, usableH * 0.55),
-      maxLines: 10,
+      maxHeight: Math.min(600, usableH * 0.70),
+      maxLines: 20,
       minSize: sr.min,
       maxSize: sr.max,
       family: fonts.body,
@@ -843,7 +843,7 @@ function drawBreaking(
   const headlineFit = fitFontSize(post.headline, {
     maxWidth: contentW,
     maxHeight: headlineMaxH,
-    maxLines: 6,
+    maxLines: 10,
     minSize: hRange.minSize,
     maxSize: hRange.maxSize,
     family: fonts.display,
@@ -940,8 +940,8 @@ function drawStat(
     const sr = subSizeRange(post.subheadlineSize, 18, 28);
     const fit = fitFontSize(post.subheadline, {
       maxWidth: contentW,
-      maxHeight: Math.min(320, usableH * 0.45),
-      maxLines: 8,
+      maxHeight: Math.min(500, usableH * 0.65),
+      maxLines: 16,
       minSize: sr.min,
       maxSize: sr.max,
       family: fonts.body,
@@ -1100,7 +1100,7 @@ function drawQuote(
   const quoteFit = fitFontSize(post.headline, {
     maxWidth: contentW,
     maxHeight: usableH - 200,
-    maxLines: 6,
+    maxLines: 10,
     minSize: quoteRange.minSize,
     maxSize: quoteRange.maxSize,
     family: fonts.display,
@@ -1176,8 +1176,8 @@ function drawMinimal(
     const sr = subSizeRange(post.subheadlineSize, 20, 32);
     const fit = fitFontSize(post.subheadline, {
       maxWidth: contentW,
-      maxHeight: Math.min(400, usableH * 0.55),
-      maxLines: 10,
+      maxHeight: Math.min(600, usableH * 0.70),
+      maxLines: 20,
       minSize: sr.min,
       maxSize: sr.max,
       family: fonts.body,
@@ -1195,7 +1195,7 @@ function drawMinimal(
   const headlineFit = fitFontSize(post.headline, {
     maxWidth: contentW,
     maxHeight: usableH - subBlockH - 32,
-    maxLines: 7,
+    maxLines: 10,
     minSize: mRange.minSize,
     maxSize: mRange.maxSize,
     family: fonts.display,
@@ -1262,8 +1262,8 @@ function drawCentered(
     const sr = subSizeRange(post.subheadlineSize, 20, 32);
     const fit = fitFontSize(post.subheadline, {
       maxWidth: contentW,
-      maxHeight: Math.min(400, usableH * 0.55),
-      maxLines: 10,
+      maxHeight: Math.min(600, usableH * 0.70),
+      maxLines: 20,
       minSize: sr.min,
       maxSize: sr.max,
       family: fonts.body,
@@ -1285,7 +1285,7 @@ function drawCentered(
   const headlineFit = fitFontSize(post.headline, {
     maxWidth: contentW,
     maxHeight: headlineMaxH,
-    maxLines: 5,
+    maxLines: 10,
     minSize: cRange.minSize,
     maxSize: cRange.maxSize,
     family: fonts.display,

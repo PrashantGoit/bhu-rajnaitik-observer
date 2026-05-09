@@ -91,11 +91,11 @@ export const StatSchema = z.object({
 
 export const PostSchema = z.object({
   background: BackgroundSchema,
-  headline: z.string().min(1).max(280),
-  subheadline: z.string().max(600).default(""),
+  headline: z.string().min(1).max(2000),
+  subheadline: z.string().max(3000).default(""),
   countryName: z.string().max(48).nullable().default(null),
   highlightWords: z.array(z.string().min(1).max(40)).max(8).default([]),
-  subHighlightWords: z.array(z.string().min(1).max(40)).max(12).default([]),
+  subHighlightWords: z.array(z.string().min(1).max(40)).max(20).default([]),
   hashtags: z.array(z.string().min(1).max(30)).max(8).default([]),
   format: FormatSchema.default("1080x1080"),
   layout: LayoutKindSchema.default("breaking"),
@@ -108,7 +108,7 @@ export const PostSchema = z.object({
   headlineFont: z.string().min(1).max(64).default("Inter Tight"),
   headlineSize: z.number().int().min(0).max(280).default(0),
   // Sub-headline display overrides: 0 = auto-fit, >0 = target size in px.
-  subheadlineSize: z.number().int().min(0).max(120).default(0),
+  subheadlineSize: z.number().int().min(0).max(200).default(0),
   stat: StatSchema.optional(),
   attribution: z.string().max(80).optional(),
 });

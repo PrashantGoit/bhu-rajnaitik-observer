@@ -144,7 +144,6 @@ export function Controls({ post, onChange, onExport, exporting }: Props) {
       <Field label="Headline" required>
         <textarea
           rows={4}
-          maxLength={280}
           value={post.headline}
           onChange={(e) => onChange({ ...post, headline: e.target.value })}
           placeholder="Iran strikes Israeli air base"
@@ -152,7 +151,7 @@ export function Controls({ post, onChange, onExport, exporting }: Props) {
         />
         <div className="mt-2 flex items-center justify-between">
           <span className="font-mono text-[10px] uppercase tracking-wider text-[var(--color-ink-secondary)]">
-            {post.headline.length}/280
+            {post.headline.length} chars · auto-scaled to fit
           </span>
           <button
             type="button"
@@ -169,14 +168,13 @@ export function Controls({ post, onChange, onExport, exporting }: Props) {
       <Field label="Sub-headline">
         <textarea
           rows={4}
-          maxLength={600}
           value={post.subheadline}
           onChange={(e) => onChange({ ...post, subheadline: e.target.value })}
           placeholder="Tehran's deterrence calculus shifts as ballistic missile salvos target Negev base."
           className={inputCls}
         />
         <span className="mt-1 block font-mono text-[10px] uppercase tracking-wider text-[var(--color-ink-secondary)]">
-          {post.subheadline.length}/600
+          {post.subheadline.length} chars · auto-scaled to fit above watermark
         </span>
       </Field>
 
@@ -184,7 +182,7 @@ export function Controls({ post, onChange, onExport, exporting }: Props) {
         <FontSizePicker
           value={post.subheadlineSize}
           onChange={(n) => onChange({ ...post, subheadlineSize: n })}
-          maxPx={120}
+          maxPx={200}
           defaultAuto={28}
           listId="bro-sub-font-sizes"
         />
@@ -196,7 +194,7 @@ export function Controls({ post, onChange, onExport, exporting }: Props) {
           onChange={(words) => onChange({ ...post, subHighlightWords: words })}
         />
         <span className="mt-1 block font-mono text-[10px] uppercase tracking-wider text-[var(--color-ink-secondary)]">
-          Press Enter or comma to add. Backspace to remove. Up to 12.
+          Press Enter or comma to add. Backspace to remove.
         </span>
       </Field>
 
